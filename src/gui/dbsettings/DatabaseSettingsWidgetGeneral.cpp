@@ -210,7 +210,7 @@ void DatabaseSettingsWidgetGeneral::pickPublicIcon()
     iconList->setWrapping(true);
     iconList->setSpacing(4);
 
-    auto iconModel = new DefaultIconModel;
+    auto iconModel = new DefaultIconModel(&dialog); // TITANIUM: parent to dialog, was leaked
     iconList->setModel(iconModel);
     if (m_ui->dbPublicIconButton->property("iconIndex").toInt() >= 0) {
         iconList->setCurrentIndex(iconModel->index(m_ui->dbPublicIconButton->property("iconIndex").toInt(), 0));
