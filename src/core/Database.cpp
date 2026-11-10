@@ -65,7 +65,15 @@ Database::Database()
         updateTagList();
         updateCustomAttributeKeys();
     });
-    connect(this, &Database::modified, this, [this] { updateTagList(); });
+    // TITANIUM: updateTagList() is a full-tree scan + sort; throttle to at most one run per 500 ms
+    m_tagListTimer.setSingleShot(true);
+    m_tagListTimer.setInterval(500);
+    connect(&m_tagListTimer, &QTimer::timeout, this, &Database::updateTagList);
+    connect(this, &Database::modified, this, [this] {
+        if (!m_tagListTimer.isActive()) {
+            m_tagListTimer.start();
+        }
+    });
     connect(this, &Database::databaseSaved, this, [this] {
         updateCommonUsernames();
         updateCustomAttributeKeys();
