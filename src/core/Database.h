@@ -249,6 +249,7 @@ private:
     QPointer<Group> m_rootGroup;
     QList<DeletedObject> m_deletedObjects;
     QTimer m_modifiedTimer;
+    QTimer m_tagListTimer; // TITANIUM: throttles the full-tree tag rescan
     QMutex m_saveMutex;
     QPointer<FileWatcher> m_fileWatcher;
     bool m_modified = false;
