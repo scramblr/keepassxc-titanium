@@ -21,6 +21,7 @@
 #include "browser/BrowserMessageBuilder.h"
 #include "browser/BrowserSettings.h"
 #include "core/Group.h"
+#include "core/Metadata.h" // TITANIUM: metadata()->customData() in testSearchConnectedDatabases
 #include "core/Tools.h"
 #include "crypto/Crypto.h"
 
@@ -1211,4 +1212,107 @@ void TestBrowser::testBrowserHostCoalescedMessaging()
     result = browserHost.parseSocketData(fragmented7, 0);
     QVERIFY(result.length() == 1);
     QCOMPARE(result.first(), secondOriginalMessage);
+}
+
+// TITANIUM: requests arriving with no current database must not dereference null (CWE-476)
+void TestBrowser::testNoCurrentDatabase()
+{
+    browserSettings()->setSearchInAllDatabases(false);
+    QVERIFY(!m_browserService->getDatabase());
+
+    const StringPairList keyList = {{"key", "value"}};
+    QVERIFY(m_browserService->searchEntries("https://example.com", "", keyList).isEmpty());
+    QVERIFY(m_browserService->getCurrentTotp("00000000000000000000000000000000").isEmpty());
+}
+
+// TITANIUM: credentials must be found in every database associated with the client, independent of which
+// database is active, and a group's restrict-key must only be checked against that database's own key id
+void TestBrowser::testSearchConnectedDatabases()
+{
+    auto setKey = [](const QSharedPointer<Database>& db, const QString& id, const QString& key) {
+        db->metadata()->customData()->set(CustomData::getKeyWithPrefix(CustomData::BrowserKeyPrefix, id), key);
+    };
+
+    auto db1 = QSharedPointer<Database>::create();
+    auto db2 = QSharedPointer<Database>::create();
+    QStringList urls1 = {"https://example.com/db1"};
+    QStringList urls2 = {"https://example.com/db2"};
+    createEntries(urls1, db1->rootGroup());
+    createEntries(urls2, db2->rootGroup());
+    setKey(db1, "phone", "key-phone");
+    setKey(db2, "laptop", "key-laptop");
+
+    const QList<QSharedPointer<Database>> dbs = {db1, db2};
+    const auto siteUrl = QString("https://example.com");
+    const auto phone = qMakePair(QString("phone"), QString("key-phone"));
+    const auto laptop = qMakePair(QString("laptop"), QString("key-laptop"));
+
+    // Associated with both databases: entries from both are found
+    auto result = m_browserService->searchEntriesInDatabases(dbs, siteUrl, siteUrl, {phone, laptop});
+    QCOMPARE(result.size(), 2);
+
+    // Associated with db2 only: db1 must not be used
+    result = m_browserService->searchEntriesInDatabases(dbs, siteUrl, siteUrl, {laptop});
+    QCOMPARE(result.size(), 1);
+    QCOMPARE(result[0]->url(), QString("https://example.com/db2"));
+
+    // Right key id but wrong key value is not an association
+    result = m_browserService->searchEntriesInDatabases(dbs, siteUrl, siteUrl, {qMakePair(QString("phone"), QString("wrong"))});
+    QVERIFY(result.isEmpty());
+
+    // db1 group restricted to key id "laptop"; the client reaches db1 as "phone" and db2 as "laptop".
+    // The restriction must not be satisfied by db2's key id.
+    auto* restricted = new Group();
+    restricted->setParent(db1->rootGroup());
+    restricted->customData()->set(BrowserService::OPTION_RESTRICT_KEY, "laptop");
+    QStringList urlsRestricted = {"https://example.com/restricted"};
+    createEntries(urlsRestricted, restricted);
+
+    result = m_browserService->searchEntriesInDatabases(dbs, siteUrl, siteUrl, {phone, laptop});
+    QCOMPARE(result.size(), 2);
+    for (auto* entry : result) {
+        QVERIFY(entry->url() != QString("https://example.com/restricted"));
+    }
+}
+
+// TITANIUM: the active tab keeps deciding which database the protocol refers to; only when it is locked or
+// missing may a connected unlocked database stand in for it
+void TestBrowser::testProtocolDatabaseSelection()
+{
+    auto db1 = QSharedPointer<Database>::create();
+    auto db2 = QSharedPointer<Database>::create();
+    auto lockedDb = QSharedPointer<Database>::create();
+
+    // The legacy hash also covers the recycle bin, so it only differs once a bin exists
+    auto* recycleBin = new Group();
+    recycleBin->setParent(db1->rootGroup());
+    db1->metadata()->setRecycleBin(recycleBin);
+
+    const auto hash1 = m_browserService->getDatabaseHash(db1);
+    const auto legacy1 = m_browserService->getDatabaseHash(db1, true);
+    QVERIFY(!hash1.isEmpty());
+    QVERIFY(hash1 != m_browserService->getDatabaseHash(db2));
+    QVERIFY(hash1 != legacy1);
+
+    const QList<QSharedPointer<Database>> unlocked = {db1, db2};
+    const QSharedPointer<Database> none;
+    auto select = [&](const QList<QSharedPointer<Database>>& open,
+                      const QSharedPointer<Database>& active,
+                      const QStringList& hashes) {
+        return BrowserService::selectProtocolDatabase(open, active, hashes);
+    };
+
+    // Active tab is unlocked: it always wins, even if the client is only connected to the other database
+    QVERIFY(select(unlocked, db2, {hash1}) == db2);
+    QVERIFY(select(unlocked, db1, {}) == db1);
+
+    // Active tab locked (not among the unlocked databases) or missing: use the connected unlocked database
+    QVERIFY(select(unlocked, none, {hash1}) == db1);
+    QVERIFY(select(unlocked, lockedDb, {hash1}) == db1);
+    QVERIFY(select(unlocked, none, {legacy1}) == db1); // legacy hash is accepted as well
+
+    // Nothing the client is connected to is unlocked: no fallback, never an arbitrary database
+    QVERIFY(!select(unlocked, none, {}));
+    QVERIFY(!select(unlocked, none, {"unrelated"}));
+    QVERIFY(!select({}, none, {hash1}));
 }

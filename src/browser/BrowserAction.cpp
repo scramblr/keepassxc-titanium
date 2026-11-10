@@ -63,8 +63,20 @@ QJsonObject BrowserAction::processClientMessage(QLocalSocket* socket, const QJso
 
     if (action.compare(BROWSER_REQUEST_CHANGE_PUBLIC_KEYS) != 0 && action.compare(BROWSER_REQUEST_REQUEST_AUTOTYPE) != 0
         && !browserService()->isDatabaseOpened()) {
+        // TITANIUM: credential lookups only need *some* unlocked connected database, not an unlocked active tab
+        // (the hash / association checks that precede a lookup are covered as well)
+        const bool isLookup = action.compare(BROWSER_REQUEST_GET_LOGINS) == 0
+                              || action.compare(BROWSER_REQUEST_GET_TOTP) == 0
+                              || action.compare(BROWSER_REQUEST_GET_DATABASEHASH) == 0
+                              || action.compare(BROWSER_REQUEST_TEST_ASSOCIATE) == 0;
         if (m_clientPublicKey.isEmpty()) {
             return getErrorReply(action, ERROR_KEEPASS_CLIENT_PUBLIC_KEY_NOT_RECEIVED);
+        } else if (isLookup && browserService()->hasConnectedDatabase()) {
+            // A locked/missing active tab must not hide credentials held by other unlocked databases,
+            // but still honor an explicit unlock request for the active one.
+            if (triggerUnlock) {
+                browserService()->openDatabase(true);
+            }
         } else if (!browserService()->openDatabase(triggerUnlock)) {
             return getErrorReply(action, ERROR_KEEPASS_DATABASE_NOT_OPENED);
         }
@@ -146,10 +158,31 @@ QJsonObject BrowserAction::handleChangePublicKeys(const QJsonObject& json, const
 
 QJsonObject BrowserAction::handleGetDatabaseHash(const QJsonObject& json, const QString& action)
 {
-    const auto browserRequest = decodeRequest(json);
+    auto browserRequest = decodeRequest(json);
     if (browserRequest.isEmpty()) {
         return getErrorReply(action, ERROR_KEEPASS_CANNOT_DECRYPT_MESSAGE);
     }
+
+    // TITANIUM: remember which database hashes this client holds keys for (bounded: untrusted input), so that a
+    // locked or missing active tab does not hide another unlocked database the client is connected to.
+    static constexpr int MAX_CONNECTED_HASHES = 256;
+    static constexpr int MAX_HASH_LENGTH = 128;
+    m_connectedHashes.clear();
+    for (const auto& value : browserRequest.getArray("connectedKeys")) {
+        const auto hash = value.toString();
+        if (!hash.isEmpty() && hash.length() <= MAX_HASH_LENGTH) {
+            m_connectedHashes << hash;
+        }
+        if (m_connectedHashes.size() >= MAX_CONNECTED_HASHES) {
+            break;
+        }
+    }
+
+    const auto protocolDb = protocolDatabase();
+    if (!protocolDb) {
+        return getErrorReply(action, ERROR_KEEPASS_DATABASE_NOT_OPENED);
+    }
+    browserRequest.hash = browserService()->getDatabaseHash(protocolDb);
 
     if (browserRequest.hash.isEmpty()) {
         return getErrorReply(action, ERROR_KEEPASS_DATABASE_HASH_NOT_RECEIVED);
@@ -207,7 +240,7 @@ QJsonObject BrowserAction::handleTestAssociate(const QJsonObject& json, const QS
         return getErrorReply(action, ERROR_KEEPASS_DATABASE_NOT_OPENED);
     }
 
-    const auto key = browserService()->getKey(id);
+    const auto key = browserService()->getKey(id, protocolDatabase()); // TITANIUM: same database as the hash
     if (key.isEmpty() || key.compare(responseKey) != 0) {
         return getErrorReply(action, ERROR_KEEPASS_ASSOCIATION_FAILED);
     }
@@ -248,7 +281,12 @@ QJsonObject BrowserAction::handleGetLogins(const QJsonObject& json, const QStrin
     entryParameters.httpAuth = httpAuth;
 
     bool entriesFound = false;
-    const auto entries = browserService()->findEntries(entryParameters, keyList, &entriesFound);
+    bool dialogBusy = false;
+    const auto entries = browserService()->findEntries(entryParameters, keyList, &entriesFound, &dialogBusy);
+    if (dialogBusy) {
+        // TITANIUM: another confirmation dialog is open; report it instead of a misleading empty success
+        return getErrorReply(action, ERROR_KEEPASS_ACTION_CANCELLED_OR_DENIED);
+    }
     if (!entriesFound) {
         return getErrorReply(action, ERROR_KEEPASS_NO_LOGINS_FOUND);
     }
@@ -601,12 +639,17 @@ QJsonObject BrowserAction::buildResponse(const QString& action, const QString& n
     return browserMessageBuilder()->buildResponse(action, nonce, params, m_clientPublicKey, m_secretKey);
 }
 
+QSharedPointer<Database> BrowserAction::protocolDatabase() const
+{
+    return browserService()->getProtocolDatabase(m_connectedHashes);
+}
+
 BrowserRequest BrowserAction::decodeRequest(const QJsonObject& json)
 {
     const auto nonce = json.value("nonce").toString();
     const auto encrypted = json.value("message").toString();
 
-    return {browserService()->getDatabaseHash(),
+    return {browserService()->getDatabaseHash(protocolDatabase()),
             nonce,
             browserMessageBuilder()->incrementNonce(nonce),
             decryptMessage(encrypted, nonce)};

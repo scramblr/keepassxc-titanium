@@ -69,6 +69,9 @@ public:
     QJsonObject processClientMessage(QLocalSocket* socket, const QJsonObject& json);
 
 private:
+    // TITANIUM: database hashes this client holds keys for (reported via get-databasehash "connectedKeys")
+    QStringList m_connectedHashes;
+    QSharedPointer<Database> protocolDatabase() const;
     QJsonObject handleAction(QLocalSocket* socket, const QJsonObject& json);
     QJsonObject handleChangePublicKeys(const QJsonObject& json, const QString& action);
     QJsonObject handleGetDatabaseHash(const QJsonObject& json, const QString& action);

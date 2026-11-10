@@ -146,42 +146,54 @@ void BrowserService::lockDatabase()
 
 QString BrowserService::getDatabaseHash(bool legacy)
 {
-    if (legacy) {
-        return QCryptographicHash::hash(
-                   (browserService()->getDatabaseRootUuid() + browserService()->getDatabaseRecycleBinUuid()).toUtf8(),
-                   QCryptographicHash::Sha256)
-            .toHex();
-    }
-    return QCryptographicHash::hash(getDatabaseRootUuid().toUtf8(), QCryptographicHash::Sha256).toHex();
+    return getDatabaseHash(getDatabase(), legacy);
 }
 
-QString BrowserService::getDatabaseRootUuid()
+// TITANIUM: hash of a specific database (a null database hashes the empty string, as before)
+QString BrowserService::getDatabaseHash(const QSharedPointer<Database>& db, bool legacy)
 {
-    auto db = getDatabase();
-    if (!db) {
-        return {};
+    QString rootUuid;
+    QString recycleBinUuid;
+    if (db) {
+        if (auto* rootGroup = db->rootGroup()) {
+            rootUuid = rootGroup->uuidToHex();
+        }
+        if (auto* recycleBin = db->metadata()->recycleBin()) {
+            recycleBinUuid = recycleBin->uuidToHex();
+        }
     }
 
-    Group* rootGroup = db->rootGroup();
-    if (!rootGroup) {
-        return {};
-    }
-
-    return rootGroup->uuidToHex();
+    const auto source = legacy ? rootUuid + recycleBinUuid : rootUuid;
+    return QCryptographicHash::hash(source.toUtf8(), QCryptographicHash::Sha256).toHex();
 }
 
-QString BrowserService::getDatabaseRecycleBinUuid()
+// TITANIUM: pick the database the protocol (hash / association) refers to.
+// The active tab wins whenever it is unlocked, so behavior (and connecting a new database) is unchanged.
+// Only when the active tab is locked or missing, fall back to an unlocked database whose hash the client
+// reported holding a key for. Returns null if there is none.
+QSharedPointer<Database> BrowserService::selectProtocolDatabase(const QList<QSharedPointer<Database>>& unlocked,
+                                                                const QSharedPointer<Database>& active,
+                                                                const QStringList& connectedHashes)
 {
-    auto db = getDatabase();
-    if (!db) {
-        return {};
+    if (active && unlocked.contains(active)) {
+        return active;
     }
 
-    Group* recycleBin = db->metadata()->recycleBin();
-    if (!recycleBin) {
-        return {};
+    for (const auto& db : unlocked) {
+        if (db && (connectedHashes.contains(getDatabaseHash(db)) || connectedHashes.contains(getDatabaseHash(db, true)))) {
+            return db;
+        }
     }
-    return recycleBin->uuidToHex();
+    return {};
+}
+
+QSharedPointer<Database> BrowserService::getProtocolDatabase(const QStringList& connectedHashes)
+{
+    QSharedPointer<Database> active;
+    if (m_currentDatabaseWidget && !m_currentDatabaseWidget->isLocked()) {
+        active = m_currentDatabaseWidget->database();
+    }
+    return selectProtocolDatabase(getOpenDatabases(), active, connectedHashes);
 }
 
 QJsonArray BrowserService::getChildrenFromGroup(Group* group)
@@ -345,21 +357,21 @@ QJsonObject BrowserService::createNewGroup(const QString& groupName,
 
 QString BrowserService::getCurrentTotp(const QString& uuid)
 {
+    // TITANIUM: every unlocked database connected to the extension, not only the active tab
     QList<QSharedPointer<Database>> databases;
-    if (browserSettings()->searchInAllDatabases()) {
-        for (auto dbWidget : getMainWindow()->getOpenDatabases()) {
-            auto db = dbWidget->database();
-            if (db) {
-                databases << db;
-            }
+    for (const auto& db : getOpenDatabases()) {
+        if (isConnectedToBrowser(db)) {
+            databases << db;
         }
-    } else {
-        databases << getDatabase();
     }
 
     auto entryUuid = Tools::hexToUuid(uuid);
     for (const auto& db : databases) {
-        auto entry = db->rootGroup()->findEntryByUuid(entryUuid, true);
+        auto* rootGroup = db->rootGroup(); // TITANIUM: null when locked/released
+        if (!rootGroup) {
+            continue;
+        }
+        auto entry = rootGroup->findEntryByUuid(entryUuid, true);
         if (entry) {
             return entry->totp();
         }
@@ -368,11 +380,16 @@ QString BrowserService::getCurrentTotp(const QString& uuid)
     return {};
 }
 
-QJsonArray
-BrowserService::findEntries(const EntryParameters& entryParameters, const StringPairList& keyList, bool* entriesFound)
+QJsonArray BrowserService::findEntries(const EntryParameters& entryParameters,
+                                       const StringPairList& keyList,
+                                       bool* entriesFound,
+                                       bool* dialogBusy)
 {
     if (entriesFound) {
         *entriesFound = false;
+    }
+    if (dialogBusy) {
+        *dialogBusy = false;
     }
 
     const bool alwaysAllowAccess = browserSettings()->alwaysAllowAccess();
@@ -428,15 +445,35 @@ BrowserService::findEntries(const EntryParameters& entryParameters, const String
         return {};
     }
 
+    // TITANIUM: a busy confirmation dialog must not look like "no logins found"; the caller reports an error
+    if (!entriesToConfirm.isEmpty() && m_dialogActive && allowedEntries.isEmpty()) {
+        if (dialogBusy) {
+            *dialogBusy = true;
+        }
+        return {};
+    }
+
+    // TITANIUM: entries may belong to any open database; one can be locked (and freed) while the dialog is open
+    QList<QPointer<Entry>> guardedAllowed;
+    for (auto* entry : asConst(allowedEntries)) {
+        guardedAllowed << entry;
+    }
+
     // Confirm entries
     auto selectedEntriesToConfirm =
         confirmEntries(entriesToConfirm, entryParameters, siteHost, formHost, entryParameters.httpAuth);
-    if (!selectedEntriesToConfirm.isEmpty()) {
-        allowedEntries.append(selectedEntriesToConfirm);
-    }
 
-    // Ensure that database is not locked when the popup was visible
-    if (!isDatabaseOpened()) {
+    allowedEntries.clear();
+    for (const auto& guarded : asConst(guardedAllowed)) {
+        if (guarded) {
+            allowedEntries.append(guarded.data());
+        }
+    }
+    const bool lostEntries = allowedEntries.size() != guardedAllowed.size();
+    allowedEntries.append(selectedEntriesToConfirm);
+
+    // Entries vanished (database locked while the popup was visible) and nothing remains
+    if (lostEntries && allowedEntries.isEmpty()) {
         return {};
     }
 
@@ -468,13 +505,26 @@ QList<Entry*> BrowserService::confirmEntries(QList<Entry*>& entriesToConfirm,
 
     m_dialogActive = true;
     updateWindowState();
+
+    // TITANIUM: entries can belong to any open database; one may be locked (and freed) while the dialog is open
+    QList<QPointer<Entry>> guarded;
+    for (auto* entry : asConst(entriesToConfirm)) {
+        guarded << entry;
+    }
+    auto entryAt = [&guarded](int row) -> Entry* {
+        return (row >= 0 && row < guarded.size()) ? guarded[row].data() : nullptr;
+    };
+
     BrowserAccessControlDialog accessControlDialog(m_currentDatabaseWidget);
 
-    connect(m_currentDatabaseWidget, SIGNAL(databaseLockRequested()), &accessControlDialog, SLOT(reject()));
+    if (m_currentDatabaseWidget) { // TITANIUM: may be null when no tab is active
+        connect(m_currentDatabaseWidget, SIGNAL(databaseLockRequested()), &accessControlDialog, SLOT(reject()));
+    }
 
     connect(&accessControlDialog, &BrowserAccessControlDialog::disableAccess, [&](QTableWidgetItem* item) {
-        auto entry = entriesToConfirm[item->row()];
-        denyEntry(entry, siteHost, formUrl, entryParameters.realm);
+        if (auto* entry = entryAt(item->row())) {
+            denyEntry(entry, siteHost, formUrl, entryParameters.realm);
+        }
     });
 
     accessControlDialog.setEntries(entriesToConfirm, entryParameters.siteUrl, httpAuth);
@@ -485,8 +535,10 @@ QList<Entry*> BrowserService::confirmEntries(QList<Entry*>& entriesToConfirm,
 
     // All are denied
     if (ret == QDialog::Rejected && remember) {
-        for (auto& entry : entriesToConfirm) {
-            denyEntry(entry, siteHost, formUrl, entryParameters.realm);
+        for (auto& g : asConst(guarded)) {
+            if (g) {
+                denyEntry(g.data(), siteHost, formUrl, entryParameters.realm);
+            }
         }
     }
 
@@ -494,7 +546,10 @@ QList<Entry*> BrowserService::confirmEntries(QList<Entry*>& entriesToConfirm,
     if (ret == QDialog::Accepted) {
         auto selectedEntries = accessControlDialog.getEntries(SelectionType::Selected);
         for (auto& item : selectedEntries) {
-            auto entry = entriesToConfirm[item->row()];
+            auto* entry = entryAt(item->row());
+            if (!entry) {
+                continue;
+            }
             allowedEntries.append(entry);
 
             if (remember) {
@@ -506,8 +561,9 @@ QList<Entry*> BrowserService::confirmEntries(QList<Entry*>& entriesToConfirm,
         if (remember) {
             auto nonSelectedEntries = accessControlDialog.getEntries(SelectionType::NonSelected);
             for (auto& item : nonSelectedEntries) {
-                auto entry = entriesToConfirm[item->row()];
-                denyEntry(entry, siteHost, formUrl, entryParameters.realm);
+                if (auto* entry = entryAt(item->row())) {
+                    denyEntry(entry, siteHost, formUrl, entryParameters.realm);
+                }
             }
         }
     }
@@ -515,8 +571,9 @@ QList<Entry*> BrowserService::confirmEntries(QList<Entry*>& entriesToConfirm,
     // Handle disabled entries (returned Accept/Reject status does not matter)
     auto disabledEntries = accessControlDialog.getEntries(SelectionType::Disabled);
     for (auto& item : disabledEntries) {
-        auto entry = entriesToConfirm[item->row()];
-        denyEntry(entry, siteHost, formUrl, entryParameters.realm);
+        if (auto* entry = entryAt(item->row())) {
+            denyEntry(entry, siteHost, formUrl, entryParameters.realm);
+        }
     }
 
     // Re-hide the application if it wasn't visible before
@@ -624,7 +681,11 @@ QString BrowserService::storeKey(const QString& key)
 
 QString BrowserService::getKey(const QString& id)
 {
-    auto db = getDatabase();
+    return getKey(id, getDatabase());
+}
+
+QString BrowserService::getKey(const QString& id, const QSharedPointer<Database>& db)
+{
     if (!db) {
         return {};
     }
@@ -1056,10 +1117,8 @@ QList<Entry*> BrowserService::searchEntries(const QSharedPointer<Database>& db,
                 continue;
             }
 
-            // Additional URL check may have already inserted the entry to the list
-            if (!entries.contains(entry)) {
-                entries.append(entry);
-            }
+            // TITANIUM: duplicates impossible (one group per entry); was O(n^2) contains()
+            entries.append(entry);
         }
     }
 
@@ -1071,8 +1130,22 @@ QList<Entry*> BrowserService::searchEntries(const QString& siteUrl,
                                             const StringPairList& keyList,
                                             bool passkey)
 {
+    // TITANIUM: search every unlocked database associated with the client's keys, regardless of the active tab
+    return searchEntriesInDatabases(getOpenDatabases(), siteUrl, formUrl, keyList, passkey);
+}
+
+QList<Entry*> BrowserService::searchEntriesInDatabases(const QList<QSharedPointer<Database>>& openDatabases,
+                                                       const QString& siteUrl,
+                                                       const QString& formUrl,
+                                                       const StringPairList& keyList,
+                                                       bool passkey)
+{
     // Check if database is connected with KeePassXC-Browser. If so, return browser key (otherwise empty)
     auto databaseConnected = [&](const QSharedPointer<Database>& db) {
+        // TITANIUM: db may be null (no current widget / widget without database) (CWE-476)
+        if (!db) {
+            return QString();
+        }
         for (const StringPair& keyPair : keyList) {
             const auto key = db->metadata()->customData()->value(
                 CustomData::getKeyWithPrefix(CustomData::BrowserKeyPrefix, keyPair.first));
@@ -1083,35 +1156,15 @@ QList<Entry*> BrowserService::searchEntries(const QString& siteUrl,
         return QString();
     };
 
-    // Get the list of databases to search
-    QList<QSharedPointer<Database>> databases;
-    QStringList keys;
-    if (browserSettings()->searchInAllDatabases()) {
-        for (auto dbWidget : getMainWindow()->getOpenDatabases()) {
-            auto db = dbWidget->database();
-            auto key = databaseConnected(dbWidget->database());
-            if (db && !key.isEmpty()) {
-                databases << db;
-                keys << key;
-            }
-        }
-    } else {
-        const auto& db = getDatabase();
-        auto key = databaseConnected(db);
-        if (!key.isEmpty()) {
-            databases << db;
-            keys << key;
-        }
-    }
-
-    // Search entries matching the hostname
-    QString hostname = QUrl(siteUrl).host();
     QList<Entry*> entries;
-    do {
-        for (const auto& db : databases) {
-            entries << searchEntries(db, siteUrl, formUrl, keys, passkey);
+    for (const auto& db : openDatabases) {
+        const auto key = databaseConnected(db);
+        if (key.isEmpty()) {
+            continue;
         }
-    } while (entries.isEmpty() && removeFirstDomain(hostname));
+        // TITANIUM: restrict-key is checked against this database's own key id only (was pooled across databases)
+        entries << searchEntries(db, siteUrl, formUrl, QStringList{key}, passkey);
+    }
 
     return entries;
 }
@@ -1262,7 +1315,7 @@ Group* BrowserService::getDefaultEntryGroup(const QSharedPointer<Database>& sele
 
     for (auto* g : rootGroup->groupsRecursive(true)) {
         if (g->name() == KEEPASSXCBROWSER_GROUP_NAME && !g->isRecycled()) {
-            return db->rootGroup()->findGroupByUuid(g->uuid());
+            return g; // TITANIUM: already the group; lookup was redundant
         }
     }
 
@@ -1345,23 +1398,6 @@ int BrowserService::sortPriority(const QStringList& urls, const QString& siteUrl
     }
 
     return *std::max_element(priorityList.begin(), priorityList.end());
-}
-
-bool BrowserService::removeFirstDomain(QString& hostname)
-{
-    int pos = hostname.indexOf(".");
-    if (pos < 0) {
-        return false;
-    }
-
-    // Don't remove the second-level domain if it's the only one
-    if (hostname.count(".") > 1) {
-        hostname = hostname.mid(pos + 1);
-        return !hostname.isEmpty();
-    }
-
-    // Nothing removed
-    return false;
 }
 
 /* Test if a search URL matches a custom entry. If the URL has the schema "keepassxc", some special checks will be made.
@@ -1535,7 +1571,8 @@ bool BrowserService::handleURL(const QString& entryUrl,
     }
 
     // Check for illegal characters
-    QRegularExpression re("[<>\\^`{|}]");
+    // TITANIUM: compile once; hot path (per entry x per request)
+    static const QRegularExpression re("[<>\\^`{|}]");
     if (re.match(entryUrl).hasMatch()) {
         return false;
     }
@@ -1618,12 +1655,34 @@ QSharedPointer<Database> BrowserService::getDatabase(const QUuid& rootGroupUuid)
 QList<QSharedPointer<Database>> BrowserService::getOpenDatabases()
 {
     QList<QSharedPointer<Database>> databaseList;
-    for (auto dbWidget : getMainWindow()->getOpenDatabases()) {
-        if (!dbWidget->isLocked()) {
+    auto* mainWindow = getMainWindow();
+    if (!mainWindow) { // TITANIUM: no window (e.g. unit tests / shutdown)
+        return databaseList;
+    }
+    for (auto dbWidget : mainWindow->getOpenDatabases()) {
+        if (dbWidget && !dbWidget->isLocked() && dbWidget->database()) {
             databaseList << dbWidget->database();
         }
     }
     return databaseList;
+}
+
+// TITANIUM: a database is "connected" when at least one browser association key is stored in it
+bool BrowserService::isConnectedToBrowser(const QSharedPointer<Database>& db)
+{
+    if (!db || !db->metadata()) {
+        return false;
+    }
+    const auto keys = db->metadata()->customData()->keys();
+    return std::any_of(keys.begin(), keys.end(), [](const QString& k) {
+        return k.startsWith(CustomData::BrowserKeyPrefix);
+    });
+}
+
+bool BrowserService::hasConnectedDatabase()
+{
+    const auto databases = getOpenDatabases();
+    return std::any_of(databases.begin(), databases.end(), [](const auto& db) { return isConnectedToBrowser(db); });
 }
 
 QSharedPointer<Database> BrowserService::selectedDatabase()

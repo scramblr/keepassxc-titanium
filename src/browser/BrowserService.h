@@ -71,10 +71,15 @@ public:
     void setEnabled(bool enabled);
 
     QString getKey(const QString& id);
+    QString getKey(const QString& id, const QSharedPointer<Database>& db); // TITANIUM
     QString storeKey(const QString& key);
     QString getDatabaseHash(bool legacy = false);
+    static QString getDatabaseHash(const QSharedPointer<Database>& db, bool legacy = false); // TITANIUM
+    // TITANIUM: database the protocol refers to; falls back to a connected unlocked one if the active tab is locked
+    QSharedPointer<Database> getProtocolDatabase(const QStringList& connectedHashes);
 
     bool isDatabaseOpened() const;
+    bool hasConnectedDatabase(); // TITANIUM: any unlocked database connected to the extension
     bool openDatabase(bool triggerUnlock);
     void lockDatabase();
 
@@ -122,7 +127,10 @@ public:
     bool updateEntry(const EntryParameters& entryParameters, const QString& uuid);
     bool deleteEntry(const QString& uuid);
     void removePluginData(Entry* entry) const;
-    QJsonArray findEntries(const EntryParameters& entryParameters, const StringPairList& keyList, bool* entriesFound);
+    QJsonArray findEntries(const EntryParameters& entryParameters,
+                           const StringPairList& keyList,
+                           bool* entriesFound,
+                           bool* dialogBusy = nullptr); // TITANIUM: set when a confirmation dialog is already open
     void requestGlobalAutoType(const QString& search);
 
     static QString decodeCustomDataRestrictKey(const QString& key);
@@ -173,6 +181,13 @@ private:
                                 bool passkey = false);
     QList<Entry*>
     searchEntries(const QString& siteUrl, const QString& formUrl, const StringPairList& keyList, bool passkey = false);
+    // TITANIUM: search the given databases; only those associated with one of the client's keys are used
+    QList<Entry*> searchEntriesInDatabases(const QList<QSharedPointer<Database>>& databases,
+                                           const QString& siteUrl,
+                                           const QString& formUrl,
+                                           const StringPairList& keyList,
+                                           bool passkey = false);
+    static bool isConnectedToBrowser(const QSharedPointer<Database>& db);
     QList<Entry*> sortEntries(QList<Entry*>& entries, const QString& siteUrl, const QString& formUrl);
     QList<Entry*> confirmEntries(QList<Entry*>& entriesToConfirm,
                                  const EntryParameters& entryParameters,
@@ -186,7 +201,6 @@ private:
     Access checkAccess(const Entry* entry, const QString& siteHost, const QString& formHost, const QString& realm);
     Group* getDefaultEntryGroup(const QSharedPointer<Database>& selectedDb = {});
     int sortPriority(const QStringList& urls, const QString& siteUrl, const QString& formUrl);
-    bool removeFirstDomain(QString& hostname);
     bool
     shouldIncludeEntry(Entry* entry, const QString& url, const QString& submitUrl, const bool omitWwwSubdomain = false);
 
@@ -206,8 +220,9 @@ private:
                    const bool omitWwwSubdomain = false,
                    const bool allowWildcards = false);
     bool handleURLWithWildcards(const QUrl& entryQUrl, const QString& siteUrl);
-    QString getDatabaseRootUuid();
-    QString getDatabaseRecycleBinUuid();
+    static QSharedPointer<Database> selectProtocolDatabase(const QList<QSharedPointer<Database>>& unlocked,
+                                                           const QSharedPointer<Database>& active,
+                                                           const QStringList& connectedHashes);
     void hideWindow() const;
     void raiseWindow(const bool force = false);
     void updateWindowState();
