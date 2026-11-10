@@ -45,6 +45,7 @@ public:
 
 signals:
     void clientMessageReceived(QLocalSocket* socket, const QJsonObject& json);
+    void clientDisconnected(QLocalSocket* socket); // TITANIUM
 
 private slots:
     void proxyConnected();

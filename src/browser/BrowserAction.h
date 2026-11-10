@@ -97,6 +97,9 @@ private:
     StringPairList getConnectionKeys(const BrowserRequest& browserRequest);
 
     static const int MaxUrlLength;
+    static const int MaxStoredUrlLength;  // TITANIUM
+    static const int MaxMatchedUrlLength; // TITANIUM
+    static QString capRequestUrl(const QString& urlString); // TITANIUM
 
     QString m_clientPublicKey;
     QString m_publicKey;
