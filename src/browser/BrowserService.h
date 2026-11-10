@@ -156,6 +156,7 @@ public slots:
 
 private slots:
     void processClientMessage(QLocalSocket* socket, const QJsonObject& message);
+    void clientDisconnected(QLocalSocket* socket); // TITANIUM
     void handleDatabaseUnlockDialogFinished(bool accepted, DatabaseWidget* dbWidget);
 
 private:
@@ -229,6 +230,7 @@ private:
 
     QPointer<BrowserHost> m_browserHost;
     QHash<QString, QSharedPointer<BrowserAction>> m_browserClients;
+    QHash<QString, QPointer<QLocalSocket>> m_clientSockets; // TITANIUM: which connection owns which client state
 
     bool m_dialogActive;
     bool m_bringToFrontRequested;

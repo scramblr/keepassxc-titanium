@@ -80,6 +80,7 @@ BrowserService::BrowserService()
     , m_keepassBrowserUUID(Tools::hexToUuid("de887cc3036343b8974b5911b8816224"))
 {
     connect(m_browserHost, &BrowserHost::clientMessageReceived, this, &BrowserService::processClientMessage);
+    connect(m_browserHost, &BrowserHost::clientDisconnected, this, &BrowserService::clientDisconnected);
     connect(getMainWindow(), &MainWindow::databaseUnlocked, this, &BrowserService::databaseUnlocked);
     connect(getMainWindow(), &MainWindow::databaseLocked, this, &BrowserService::databaseLocked);
     connect(getMainWindow(), &MainWindow::activeDatabaseChanged, this, &BrowserService::activeDatabaseChanged);
@@ -305,7 +306,7 @@ QJsonObject BrowserService::createNewGroup(const QString& groupName,
                                             tr("KeePassXC - Create a new group"),
                                             tr("A request for creating a new group \"%1\" has been received.\n"
                                                "Do you want to create this group?\n")
-                                                .arg(groupName),
+                                                .arg(groupName.toHtmlEscaped()), // TITANIUM: MessageBox renders rich text
                                             MessageBox::Yes | MessageBox::No);
 
     if (dialogResult != MessageBox::Yes) {
@@ -666,7 +667,7 @@ QString BrowserService::storeKey(const QString& key)
                                                tr("KeePassXC - Overwrite existing key?"),
                                                tr("A shared encryption key with the name \"%1\" "
                                                   "already exists.\nDo you want to overwrite it?")
-                                                   .arg(id),
+                                                   .arg(id.toHtmlEscaped()), // TITANIUM: rich text
                                                MessageBox::Overwrite | MessageBox::Cancel,
                                                MessageBox::Cancel);
         }
@@ -913,7 +914,9 @@ void BrowserService::addPasskeyToEntry(Entry* entry,
         if (MessageBox::question(m_currentDatabaseWidget,
                                  tr("KeePassXC - Update passkey"),
                                  tr("Entry already has a passkey.\nDo you want to overwrite the passkey in %1 - %2?")
-                                     .arg(entry->title(), passkeyUtils()->getUsernameFromEntry(entry)),
+                                     // TITANIUM: title/username originate from the website (rp.name, user.name)
+                                     .arg(entry->title().toHtmlEscaped(),
+                                          passkeyUtils()->getUsernameFromEntry(entry).toHtmlEscaped()),
                                  MessageBox::Overwrite | MessageBox::Cancel,
                                  MessageBox::Cancel)
             != MessageBox::Overwrite) {
@@ -1017,7 +1020,9 @@ bool BrowserService::updateEntry(const EntryParameters& entryParameters, const Q
             dialogResult = MessageBox::question(m_currentDatabaseWidget,
                                                 tr("KeePassXC - Update Entry"),
                                                 tr("Do you want to update the information in %1 - %2?")
-                                                    .arg(QUrl(entryParameters.siteUrl).host(), username),
+                                                    // TITANIUM: username may come from a website form; escape rich text
+                                                    .arg(QUrl(entryParameters.siteUrl).host().toHtmlEscaped(),
+                                                         username.toHtmlEscaped()),
                                                 MessageBox::Save | MessageBox::Cancel,
                                                 MessageBox::Cancel);
         }
@@ -1054,7 +1059,7 @@ bool BrowserService::deleteEntry(const QString& uuid)
                                             tr("KeePassXC - Delete entry"),
                                             tr("A request for deleting entry \"%1\" has been received.\n"
                                                "Do you want to delete the entry?\n")
-                                                .arg(entry->title()),
+                                                .arg(entry->title().toHtmlEscaped()), // TITANIUM: rich text
                                             MessageBox::Yes | MessageBox::No);
     if (dialogResult != MessageBox::Yes) {
         return false;
@@ -1837,12 +1842,52 @@ void BrowserService::processClientMessage(QLocalSocket* socket, const QJsonObjec
         return;
     }
 
-    // Create a new client action if we haven't seen this id yet
-    if (!m_browserClients.contains(clientID)) {
-        m_browserClients.insert(clientID, QSharedPointer<BrowserAction>::create());
+    // TITANIUM: the integration may have been disabled while this connection was still open
+    if (!browserSettings()->isEnabled()) {
+        return;
     }
 
-    const auto& action = m_browserClients.value(clientID);
+    // Create a new client action if we haven't seen this id yet.
+    // TITANIUM: clientID is chosen by the (unauthenticated) peer, so bound how many states we keep.
+    static constexpr int MAX_CLIENT_STATES = 128;
+    static constexpr int MAX_CLIENT_ID_LENGTH = 256;
+    if (!m_browserClients.contains(clientID)) {
+        if (clientID.length() > MAX_CLIENT_ID_LENGTH) {
+            return;
+        }
+        if (m_browserClients.size() >= MAX_CLIENT_STATES) {
+            // Forget states whose connection is gone
+            for (auto it = m_clientSockets.begin(); it != m_clientSockets.end();) {
+                if (it.value().isNull() || it.value()->state() != QLocalSocket::ConnectedState) {
+                    m_browserClients.remove(it.key());
+                    it = m_clientSockets.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            if (m_browserClients.size() >= MAX_CLIENT_STATES) {
+                qWarning() << "Browser integration: too many clients, ignoring a new one.";
+                return;
+            }
+        }
+        m_browserClients.insert(clientID, QSharedPointer<BrowserAction>::create());
+    }
+    m_clientSockets.insert(clientID, socket);
+
+    const auto action = m_browserClients.value(clientID);
     auto response = action->processClientMessage(socket, message);
     m_browserHost->sendClientMessage(socket, response);
+}
+
+// TITANIUM: free the per-client state when its connection goes away
+void BrowserService::clientDisconnected(QLocalSocket* socket)
+{
+    for (auto it = m_clientSockets.begin(); it != m_clientSockets.end();) {
+        if (it.value().isNull() || it.value() == socket) {
+            m_browserClients.remove(it.key());
+            it = m_clientSockets.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }

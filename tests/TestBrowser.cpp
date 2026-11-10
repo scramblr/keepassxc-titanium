@@ -20,6 +20,7 @@
 #include "browser/BrowserHost.h"
 #include "browser/BrowserMessageBuilder.h"
 #include "browser/BrowserSettings.h"
+#include "core/EntryPlaceholders.h"
 #include "core/Group.h"
 #include "core/Metadata.h" // TITANIUM: metadata()->customData() in testSearchConnectedDatabases
 #include "core/Tools.h"
@@ -1315,4 +1316,34 @@ void TestBrowser::testProtocolDatabaseSelection()
     QVERIFY(!select(unlocked, none, {}));
     QVERIFY(!select(unlocked, none, {"unrelated"}));
     QVERIFY(!select({}, none, {hash1}));
+}
+
+// TITANIUM: size limits and placeholder handling for data that originates from web pages
+void TestBrowser::testInputBounds()
+{
+    // A first message fragment above the limit is dropped instead of buffered
+    BrowserHost host;
+    const QByteArray oversized = QByteArray(R"({"action":"x","message":")") + QByteArray(200, 'A');
+    QVERIFY(host.parseMessage(oversized, 9, 100).isEmpty());
+    QVERIFY(!host.m_messageBuffer.contains(9));
+
+    // ...while a fragment within the limit is still kept for reassembly
+    QVERIFY(host.parseMessage(QByteArray(R"({"action":"x","message":"AA)"), 9, 100).isEmpty());
+    QVERIFY(host.m_messageBuffer.contains(9));
+
+    // Normal URLs are untouched
+    const QString normal = "https://example.com/login?next=%2Fhome";
+    QCOMPARE(BrowserAction::capRequestUrl(normal), normal);
+
+    // An oversized query must not hide credentials for the site: it is dropped, host and path are kept
+    const QString longQuery = "https://example.com/login?" + QString(5000, 'a') + "#" + QString(5000, 'b');
+    QCOMPARE(BrowserAction::capRequestUrl(longQuery), QString("https://example.com/login"));
+
+    // Nothing sensible left to match against
+    QVERIFY(BrowserAction::capRequestUrl("https://example.com/" + QString(5000, 'p')).isEmpty());
+
+    // Page URLs may carry reference placeholders (browsers leave { } unescaped in query and fragment)
+    QVERIFY(EntryPlaceholders::containsPlaceholder("https://evil.example/?{REF:P@T:Bank}"));
+    QVERIFY(EntryPlaceholders::containsPlaceholder("https://evil.example/#{REF:P@I:0123456789ABCDEF0123456789ABCDEF}"));
+    QVERIFY(!EntryPlaceholders::containsPlaceholder("https://example.com/login?next=%7BREF%7D&a=b"));
 }

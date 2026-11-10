@@ -47,13 +47,28 @@ BrowserHost::~BrowserHost()
 void BrowserHost::start()
 {
     if (!m_localServer->isListening()) {
-        m_localServer->listen(BrowserShared::localServerPath());
+        // TITANIUM: do not fail silently, browser integration is dead if we cannot listen
+        if (!m_localServer->listen(BrowserShared::localServerPath())) {
+            qWarning() << "Browser integration: cannot listen on" << BrowserShared::localServerPath() << ":"
+                       << m_localServer->errorString();
+        }
     }
 }
 
 void BrowserHost::stop()
 {
+    // TITANIUM: QLocalServer::close() leaves existing connections alive, so disabling the integration
+    // must explicitly drop every connected client.
+    const auto sockets = m_socketList;
     m_socketList.clear();
+    m_messageBuffer.clear();
+    for (auto* socket : sockets) {
+        if (socket) {
+            socket->disconnect(this);
+            socket->abort();
+            socket->deleteLater();
+        }
+    }
     m_localServer->close();
 }
 
@@ -61,6 +76,14 @@ void BrowserHost::proxyConnected()
 {
     auto socket = m_localServer->nextPendingConnection();
     if (socket) {
+        // TITANIUM: bound the number of simultaneous local connections (each one can hold a message buffer)
+        static constexpr int MAX_CLIENT_CONNECTIONS = 64;
+        if (m_socketList.size() >= MAX_CLIENT_CONNECTIONS) {
+            qWarning() << "Browser integration: too many connections, rejecting a new one.";
+            socket->abort();
+            socket->deleteLater();
+            return;
+        }
         m_socketList.append(socket);
         connect(socket, SIGNAL(readyRead()), this, SLOT(readProxyMessage()));
         connect(socket, SIGNAL(disconnected()), this, SLOT(proxyDisconnected()));
@@ -76,6 +99,9 @@ void BrowserHost::readProxyMessage()
 
     socket->setReadBufferSize(BrowserShared::SOCKET_BUFFER_SIZE);
     int socketDesc = socket->socketDescriptor();
+    // TITANIUM: remember the key of the fragment buffer so it can be dropped on disconnect
+    // (descriptors are reused by the OS, a stale buffer must not leak into a new connection)
+    socket->setProperty("kpxcBufferKey", socketDesc);
     if (socketDesc) {
         int max = BrowserShared::SOCKET_BUFFER_SIZE;
         setsockopt(socketDesc, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<char*>(&max), sizeof(max));
@@ -161,6 +187,12 @@ QJsonObject BrowserHost::parseMessage(const QByteArray& socketData, const int so
         // First fragmented message is of these errors. Partial message must be stored to a temporary buffer.
         if (error.error == QJsonParseError::UnterminatedObject || error.error == QJsonParseError::UnterminatedArray
             || error.error == QJsonParseError::UnterminatedString) {
+            // TITANIUM: the first fragment was not length-checked, only the combined ones were
+            if (message.length() > maxLength) {
+                qWarning() << "First fragmented message exceeded the maximum allowed length.";
+                m_messageBuffer.remove(socketDesc);
+                return {};
+            }
             m_messageBuffer.insert(socketDesc, message);
             return {};
         }
@@ -218,5 +250,13 @@ BrowserHost::parseFragmentedMessage(const QByteArray& message, const int socketD
 void BrowserHost::proxyDisconnected()
 {
     auto socket = qobject_cast<QLocalSocket*>(QObject::sender());
+    if (socket) {
+        // TITANIUM: drop any half-received message of this connection
+        const auto key = socket->property("kpxcBufferKey");
+        if (key.isValid()) {
+            m_messageBuffer.remove(key.toInt());
+        }
+        emit clientDisconnected(socket);
+    }
     m_socketList.removeOne(socket);
 }

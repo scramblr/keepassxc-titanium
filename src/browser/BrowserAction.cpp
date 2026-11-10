@@ -25,8 +25,27 @@
 
 #include <QJsonDocument>
 #include <QLocalSocket>
+#include <QUrl>
 
 const int BrowserAction::MaxUrlLength = 256;
+const int BrowserAction::MaxStoredUrlLength = 8192;  // TITANIUM
+const int BrowserAction::MaxMatchedUrlLength = 2048; // TITANIUM
+
+// TITANIUM: bound a URL used for matching. Over-long ones lose query and fragment; if still too long, give up.
+QString BrowserAction::capRequestUrl(const QString& urlString)
+{
+    if (urlString.length() <= MaxMatchedUrlLength) {
+        return urlString;
+    }
+
+    const QUrl url(urlString);
+    if (!url.isValid()) {
+        return {};
+    }
+
+    const auto reduced = url.toString(QUrl::RemoveQuery | QUrl::RemoveFragment);
+    return reduced.length() <= MaxMatchedUrlLength ? reduced : QString();
+}
 
 static const QString BROWSER_REQUEST_ASSOCIATE = QStringLiteral("associate");
 static const QString BROWSER_REQUEST_CHANGE_PUBLIC_KEYS = QStringLiteral("change-public-keys");
@@ -242,6 +261,7 @@ QJsonObject BrowserAction::handleTestAssociate(const QJsonObject& json, const QS
 
     const auto key = browserService()->getKey(id, protocolDatabase()); // TITANIUM: same database as the hash
     if (key.isEmpty() || key.compare(responseKey) != 0) {
+        m_associated = false; // TITANIUM: a failed check must revoke an earlier success (it was sticky)
         return getErrorReply(action, ERROR_KEEPASS_ASSOCIATION_FAILED);
     }
 
@@ -262,13 +282,16 @@ QJsonObject BrowserAction::handleGetLogins(const QJsonObject& json, const QStrin
         return getErrorReply(action, ERROR_KEEPASS_CANNOT_DECRYPT_MESSAGE);
     }
 
-    const auto siteUrl = browserRequest.getString("url");
+    // TITANIUM: the page address is attacker-chosen and is matched against every entry; bound its size.
+    // Matching only needs scheme/host/port/path, so an oversized URL is reduced by dropping query and fragment
+    // instead of being refused (credentials for the site must still be found).
+    const auto siteUrl = capRequestUrl(browserRequest.getString("url"));
     if (siteUrl.isEmpty()) {
         return getErrorReply(action, ERROR_KEEPASS_NO_URL_PROVIDED);
     }
 
     const auto id = browserRequest.getString("id");
-    const auto formUrl = browserRequest.getString("submitUrl");
+    const auto formUrl = capRequestUrl(browserRequest.getString("submitUrl"));
     const auto auth = browserRequest.getString("httpAuth");
     const bool httpAuth = auth.compare(TRUE_STR) == 0;
     const auto keyList = getConnectionKeys(browserRequest);
@@ -337,7 +360,7 @@ QJsonObject BrowserAction::handleSetLogin(const QJsonObject& json, const QString
     }
 
     const auto url = browserRequest.getString("url");
-    if (url.isEmpty()) {
+    if (url.isEmpty() || url.length() > MaxStoredUrlLength) { // TITANIUM: stored verbatim, bound it
         return getErrorReply(action, ERROR_KEEPASS_NO_URL_PROVIDED);
     }
 
@@ -345,13 +368,19 @@ QJsonObject BrowserAction::handleSetLogin(const QJsonObject& json, const QString
     const auto login = browserRequest.getString("login");
     const auto password = browserRequest.getString("password");
     const auto submitUrl = browserRequest.getString("submitUrl");
+    if (submitUrl.length() > MaxStoredUrlLength) {
+        return getErrorReply(action, ERROR_KEEPASS_NO_URL_PROVIDED);
+    }
     const auto uuid = browserRequest.getString("uuid");
     const auto group = browserRequest.getString("group");
     const auto groupUuid = browserRequest.getString("groupUuid");
     const auto downloadFavicon = browserRequest.getString("downloadFavicon");
     const QString realm;
 
-    if (EntryPlaceholders::containsPlaceholder(login) || EntryPlaceholders::containsPlaceholder(password)) {
+    // TITANIUM: url/submitUrl come from the web page and are stored verbatim; browsers leave { } unescaped in query
+    // and fragment, so a page could plant {REF:...} that Entry::webUrl() later resolves into the opened URL.
+    if (EntryPlaceholders::containsPlaceholder(login) || EntryPlaceholders::containsPlaceholder(password)
+        || EntryPlaceholders::containsPlaceholder(url) || EntryPlaceholders::containsPlaceholder(submitUrl)) {
         return getErrorReply(action, ERROR_KEEPASS_CANNOT_USE_REFERENCES);
     }
 
@@ -659,8 +688,14 @@ StringPairList BrowserAction::getConnectionKeys(const BrowserRequest& browserReq
 {
     const auto keys = browserRequest.getArray("keys");
 
+    // TITANIUM: bound the number of keys a request may carry (each is compared against every database)
+    static constexpr int MAX_REQUEST_KEYS = 64;
+
     StringPairList keyList;
     for (const auto val : keys) {
+        if (keyList.size() >= MAX_REQUEST_KEYS) {
+            break;
+        }
         const auto keyObject = val.toObject();
         keyList.push_back(qMakePair(keyObject.value("id").toString(), keyObject.value("key").toString()));
     }
