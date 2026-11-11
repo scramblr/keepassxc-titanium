@@ -83,8 +83,8 @@ public:
     bool openDatabase(bool triggerUnlock);
     void lockDatabase();
 
-    QJsonObject getDatabaseGroups();
-    QJsonArray getDatabaseEntries();
+    QJsonObject getDatabaseGroups(const QSharedPointer<Database>& selectedDb = {});
+    QJsonArray getDatabaseEntries(const QSharedPointer<Database>& selectedDb = {});
     QJsonObject createNewGroup(const QString& groupName,
                                const QSharedPointer<Database>& selectedDb = {},
                                bool isPasskeysGroup = false);

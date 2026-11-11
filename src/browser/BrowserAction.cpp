@@ -159,6 +159,7 @@ QJsonObject BrowserAction::handleChangePublicKeys(const QJsonObject& json, const
     }
 
     m_associated = false;
+    m_associatedDb.clear(); // TITANIUM
     auto keyPair = browserMessageBuilder()->getKeyPair();
     if (keyPair.first.isEmpty() || keyPair.second.isEmpty()) {
         return getErrorReply(action, ERROR_KEEPASS_ENCRYPTION_KEY_UNRECOGNIZED);
@@ -238,6 +239,7 @@ QJsonObject BrowserAction::handleAssociate(const QJsonObject& json, const QStrin
         }
 
         m_associated = true;
+        m_associatedDb = protocolDatabase().data(); // TITANIUM: the database the key was just stored in
 
         const Parameters params{{"hash", browserRequest.hash}, {"id", id}};
         return buildResponse(action, browserRequest.incrementedNonce, params);
@@ -262,10 +264,12 @@ QJsonObject BrowserAction::handleTestAssociate(const QJsonObject& json, const QS
     const auto key = browserService()->getKey(id, protocolDatabase()); // TITANIUM: same database as the hash
     if (key.isEmpty() || key.compare(responseKey) != 0) {
         m_associated = false; // TITANIUM: a failed check must revoke an earlier success (it was sticky)
+        m_associatedDb.clear();
         return getErrorReply(action, ERROR_KEEPASS_ASSOCIATION_FAILED);
     }
 
     m_associated = true;
+    m_associatedDb = protocolDatabase().data(); // TITANIUM: remember which database the key was verified against
 
     const Parameters params{{"hash", browserRequest.hash}, {"id", id}};
     return buildResponse(action, browserRequest.incrementedNonce, params);
@@ -321,6 +325,11 @@ QJsonObject BrowserAction::handleGetLogins(const QJsonObject& json, const QStrin
 
 QJsonObject BrowserAction::handleGeneratePassword(QLocalSocket* socket, const QJsonObject& json, const QString& action)
 {
+    // TITANIUM: the extension always runs test-associate first; do not serve unauthenticated peers
+    if (!m_associated) {
+        return getErrorReply(action, ERROR_KEEPASS_ASSOCIATION_FAILED);
+    }
+
     const auto browserRequest = decodeRequest(json);
     if (browserRequest.isEmpty()) {
         return getErrorReply(action, ERROR_KEEPASS_CANNOT_DECRYPT_MESSAGE);
@@ -447,7 +456,13 @@ QJsonObject BrowserAction::handleGetDatabaseGroups(const QJsonObject& json, cons
         return getErrorReply(action, ERROR_KEEPASS_INCORRECT_ACTION);
     }
 
-    const auto groups = browserService()->getDatabaseGroups();
+    // TITANIUM: only the database this client authenticated against, never whichever tab happens to be active
+    const auto boundDb = boundDatabase();
+    if (!boundDb) {
+        return getErrorReply(action, ERROR_KEEPASS_ASSOCIATION_FAILED);
+    }
+
+    const auto groups = browserService()->getDatabaseGroups(boundDb);
     if (groups.isEmpty()) {
         return getErrorReply(action, ERROR_KEEPASS_NO_GROUPS_FOUND);
     }
@@ -476,7 +491,12 @@ QJsonObject BrowserAction::handleGetDatabaseEntries(const QJsonObject& json, con
         return getErrorReply(action, ERROR_KEEPASS_ACCESS_TO_ALL_ENTRIES_DENIED);
     }
 
-    const QJsonArray entries = browserService()->getDatabaseEntries();
+    const auto boundDb = boundDatabase(); // TITANIUM: see handleGetDatabaseGroups
+    if (!boundDb) {
+        return getErrorReply(action, ERROR_KEEPASS_ASSOCIATION_FAILED);
+    }
+
+    const QJsonArray entries = browserService()->getDatabaseEntries(boundDb);
     if (entries.isEmpty()) {
         return getErrorReply(action, ERROR_KEEPASS_NO_GROUPS_FOUND);
     }
@@ -502,8 +522,13 @@ QJsonObject BrowserAction::handleCreateNewGroup(const QJsonObject& json, const Q
         return getErrorReply(action, ERROR_KEEPASS_INCORRECT_ACTION);
     }
 
+    const auto boundDb = boundDatabase(); // TITANIUM: see handleGetDatabaseGroups
+    if (!boundDb) {
+        return getErrorReply(action, ERROR_KEEPASS_ASSOCIATION_FAILED);
+    }
+
     const auto group = browserRequest.getString("groupName");
-    const auto newGroup = browserService()->createNewGroup(group);
+    const auto newGroup = browserService()->createNewGroup(group, boundDb);
     if (newGroup.isEmpty() || newGroup["name"].toString().isEmpty() || newGroup["uuid"].toString().isEmpty()) {
         return getErrorReply(action, ERROR_KEEPASS_CANNOT_CREATE_NEW_GROUP);
     }
@@ -671,6 +696,22 @@ QJsonObject BrowserAction::buildResponse(const QString& action, const QString& n
 QSharedPointer<Database> BrowserAction::protocolDatabase() const
 {
     return browserService()->getProtocolDatabase(m_connectedHashes);
+}
+
+// TITANIUM: the associated database, but only while it is still the one the protocol refers to
+// (unlocked, and not replaced by another tab since the key was verified)
+QSharedPointer<Database> BrowserAction::selectBoundDatabase(const QPointer<Database>& associated,
+                                                            const QSharedPointer<Database>& current)
+{
+    if (!associated || !current || associated.data() != current.data()) {
+        return {};
+    }
+    return current;
+}
+
+QSharedPointer<Database> BrowserAction::boundDatabase() const
+{
+    return m_associated ? selectBoundDatabase(m_associatedDb, protocolDatabase()) : QSharedPointer<Database>();
 }
 
 BrowserRequest BrowserAction::decodeRequest(const QJsonObject& json)
