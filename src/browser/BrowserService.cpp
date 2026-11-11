@@ -219,9 +219,9 @@ QJsonArray BrowserService::getChildrenFromGroup(Group* group)
     return groupList;
 }
 
-QJsonObject BrowserService::getDatabaseGroups()
+QJsonObject BrowserService::getDatabaseGroups(const QSharedPointer<Database>& selectedDb)
 {
-    auto db = getDatabase();
+    auto db = selectedDb ? selectedDb : getDatabase(); // TITANIUM: caller may bind a specific database
     if (!db) {
         return {};
     }
@@ -245,9 +245,9 @@ QJsonObject BrowserService::getDatabaseGroups()
     return result;
 }
 
-QJsonArray BrowserService::getDatabaseEntries()
+QJsonArray BrowserService::getDatabaseEntries(const QSharedPointer<Database>& selectedDb)
 {
-    auto db = getDatabase();
+    auto db = selectedDb ? selectedDb : getDatabase(); // TITANIUM: caller may bind a specific database
     if (!db) {
         return {};
     }

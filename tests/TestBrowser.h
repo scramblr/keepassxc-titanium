@@ -56,6 +56,7 @@ private slots:
     void testSearchConnectedDatabases();
     void testProtocolDatabaseSelection();
     void testInputBounds();
+    void testBoundDatabase();
     void testBrowserHostMessaging();
     void testBrowserHostFragmentedMessaging();
     void testBrowserHostCoalescedMessaging();

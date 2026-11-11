@@ -20,6 +20,7 @@
 
 #include "BrowserMessageBuilder.h"
 #include "BrowserService.h"
+#include "core/Database.h" // TITANIUM: QPointer<Database> needs the complete type
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -72,6 +73,11 @@ private:
     // TITANIUM: database hashes this client holds keys for (reported via get-databasehash "connectedKeys")
     QStringList m_connectedHashes;
     QSharedPointer<Database> protocolDatabase() const;
+    // TITANIUM: database this client proved its association for (key checked in test-associate / associate)
+    QPointer<Database> m_associatedDb;
+    QSharedPointer<Database> boundDatabase() const;
+    static QSharedPointer<Database> selectBoundDatabase(const QPointer<Database>& associated,
+                                                        const QSharedPointer<Database>& current);
     QJsonObject handleAction(QLocalSocket* socket, const QJsonObject& json);
     QJsonObject handleChangePublicKeys(const QJsonObject& json, const QString& action);
     QJsonObject handleGetDatabaseHash(const QJsonObject& json, const QString& action);

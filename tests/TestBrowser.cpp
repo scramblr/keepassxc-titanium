@@ -1318,6 +1318,29 @@ void TestBrowser::testProtocolDatabaseSelection()
     QVERIFY(!select({}, none, {hash1}));
 }
 
+// TITANIUM: a client may only read the database it authenticated against, not whichever tab is active
+void TestBrowser::testBoundDatabase()
+{
+    auto dbA = QSharedPointer<Database>::create();
+    auto dbB = QSharedPointer<Database>::create();
+    const QSharedPointer<Database> none;
+
+    // Still the protocol database: allowed
+    QVERIFY(BrowserAction::selectBoundDatabase(QPointer<Database>(dbA.data()), dbA) == dbA);
+
+    // The active tab moved to another database since the key was verified: refused
+    QVERIFY(!BrowserAction::selectBoundDatabase(QPointer<Database>(dbA.data()), dbB));
+
+    // Never associated, or the database is locked/closed: refused
+    QVERIFY(!BrowserAction::selectBoundDatabase(QPointer<Database>(), dbA));
+    QVERIFY(!BrowserAction::selectBoundDatabase(QPointer<Database>(dbA.data()), none));
+
+    // The database object was destroyed: the weak pointer does not match a new one
+    QPointer<Database> stale(dbB.data());
+    dbB.reset();
+    QVERIFY(!BrowserAction::selectBoundDatabase(stale, dbA));
+}
+
 // TITANIUM: size limits and placeholder handling for data that originates from web pages
 void TestBrowser::testInputBounds()
 {
