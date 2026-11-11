@@ -1341,6 +1341,28 @@ void TestBrowser::testBoundDatabase()
     QVERIFY(!BrowserAction::selectBoundDatabase(stale, dbA));
 }
 
+// TITANIUM: a key proves a connection to the database that stores that exact id+key pair, whichever tab is active
+void TestBrowser::testFindDatabaseForKey()
+{
+    auto dbA = QSharedPointer<Database>::create();
+    auto dbB = QSharedPointer<Database>::create();
+    dbB->metadata()->customData()->set(CustomData::getKeyWithPrefix(CustomData::BrowserKeyPrefix, "browser"), "keyB");
+    // Same id, different key in another database: only the matching pair counts
+    dbA->metadata()->customData()->set(CustomData::getKeyWithPrefix(CustomData::BrowserKeyPrefix, "browser"), "keyA");
+
+    const QList<QSharedPointer<Database>> dbs{dbA, dbB};
+    QVERIFY(BrowserAction::findDatabaseForKey(dbs, "browser", "keyB") == dbB);
+    QVERIFY(BrowserAction::findDatabaseForKey(dbs, "browser", "keyA") == dbA);
+
+    // Wrong key, unknown id, empty values and no databases never match
+    QVERIFY(!BrowserAction::findDatabaseForKey(dbs, "browser", "keyC"));
+    QVERIFY(!BrowserAction::findDatabaseForKey(dbs, "other", "keyB"));
+    QVERIFY(!BrowserAction::findDatabaseForKey(dbs, "", "keyB"));
+    QVERIFY(!BrowserAction::findDatabaseForKey(dbs, "browser", ""));
+    QVERIFY(!BrowserAction::findDatabaseForKey({}, "browser", "keyB"));
+    QVERIFY(!BrowserAction::findDatabaseForKey({QSharedPointer<Database>()}, "browser", "keyB"));
+}
+
 // TITANIUM: size limits and placeholder handling for data that originates from web pages
 void TestBrowser::testInputBounds()
 {

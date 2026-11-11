@@ -75,6 +75,12 @@ private:
     QSharedPointer<Database> protocolDatabase() const;
     // TITANIUM: database this client proved its association for (key checked in test-associate / associate)
     QPointer<Database> m_associatedDb;
+    // TITANIUM: set when the client proved a key for an unlocked database other than the protocol (active tab) one.
+    // It only permits credential lookup (get-logins); every other action still needs a regular association.
+    bool m_credentialLookupOnly = false;
+    static QSharedPointer<Database> findDatabaseForKey(const QList<QSharedPointer<Database>>& databases,
+                                                       const QString& id,
+                                                       const QString& key);
     QSharedPointer<Database> boundDatabase() const;
     static QSharedPointer<Database> selectBoundDatabase(const QPointer<Database>& associated,
                                                         const QSharedPointer<Database>& current);
