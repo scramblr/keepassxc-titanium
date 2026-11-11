@@ -51,6 +51,7 @@ public:
         IMPORT_PROTONPASS,
         IMPORT_KEEPASS1,
         IMPORT_REMOTE,
+        IMPORT_KEEPASSXML, // TITANIUM: XML export of a KeePass 2 / KeePassXC database
     };
 
     enum ImportIntoType
@@ -62,6 +63,9 @@ public:
 
     ImportWizard::ImportIntoType importIntoType();
     QPair<QUuid, QUuid> importInto();
+    // TITANIUM: what the user picked on the first page
+    ImportWizard::ImportType importType();
+    QString importFile();
 
 private:
     QSharedPointer<Database> m_db;

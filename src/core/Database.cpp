@@ -530,11 +530,15 @@ bool Database::extract(QByteArray& xmlOutput, QString* error)
     return true;
 }
 
-bool Database::import(const QString& xmlExportPath, QString* error)
+bool Database::import(const QString& xmlExportPath, QString* error, QStringList* warnings)
 {
     KdbxXmlReader reader(KeePass2::FILE_VERSION_4);
     QFile file(xmlExportPath);
     if (!file.open(QIODevice::ReadOnly)) {
+        // TITANIUM: report why, callers print the message
+        if (error) {
+            *error = tr("Unable to open file %1: %2").arg(xmlExportPath, file.errorString());
+        }
         return false;
     }
 
@@ -545,6 +549,10 @@ bool Database::import(const QString& xmlExportPath, QString* error)
             *error = reader.errorString();
         }
         return false;
+    }
+
+    if (warnings) {
+        *warnings = reader.warnings();
     }
 
     return true;
