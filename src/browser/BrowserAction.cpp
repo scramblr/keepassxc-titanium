@@ -160,6 +160,7 @@ QJsonObject BrowserAction::handleChangePublicKeys(const QJsonObject& json, const
 
     m_associated = false;
     m_associatedDb.clear(); // TITANIUM
+    m_credentialLookupOnly = false;
     auto keyPair = browserMessageBuilder()->getKeyPair();
     if (keyPair.first.isEmpty() || keyPair.second.isEmpty()) {
         return getErrorReply(action, ERROR_KEEPASS_ENCRYPTION_KEY_UNRECOGNIZED);
@@ -265,9 +266,21 @@ QJsonObject BrowserAction::handleTestAssociate(const QJsonObject& json, const QS
     if (key.isEmpty() || key.compare(responseKey) != 0) {
         m_associated = false; // TITANIUM: a failed check must revoke an earlier success (it was sticky)
         m_associatedDb.clear();
+        m_credentialLookupOnly = false;
+
+        // TITANIUM: the active tab may hold a database this client was never connected to while another unlocked
+        // database is connected. If the key belongs to one of those, allow credential lookup (and only that), so
+        // credentials of a connected database are found regardless of the active tab. Possession of the exact
+        // id+key pair stored in that database is the proof, as in the regular check.
+        if (const auto otherDb = findDatabaseForKey(browserService()->getOpenDatabases(), id, responseKey)) {
+            m_credentialLookupOnly = true;
+            const Parameters params{{"hash", browserService()->getDatabaseHash(otherDb)}, {"id", id}};
+            return buildResponse(action, browserRequest.incrementedNonce, params);
+        }
         return getErrorReply(action, ERROR_KEEPASS_ASSOCIATION_FAILED);
     }
 
+    m_credentialLookupOnly = false;
     m_associated = true;
     m_associatedDb = protocolDatabase().data(); // TITANIUM: remember which database the key was verified against
 
@@ -277,7 +290,7 @@ QJsonObject BrowserAction::handleTestAssociate(const QJsonObject& json, const QS
 
 QJsonObject BrowserAction::handleGetLogins(const QJsonObject& json, const QString& action)
 {
-    if (!m_associated) {
+    if (!m_associated && !m_credentialLookupOnly) { // TITANIUM: see handleTestAssociate
         return getErrorReply(action, ERROR_KEEPASS_ASSOCIATION_FAILED);
     }
 
@@ -696,6 +709,23 @@ QJsonObject BrowserAction::buildResponse(const QString& action, const QString& n
 QSharedPointer<Database> BrowserAction::protocolDatabase() const
 {
     return browserService()->getProtocolDatabase(m_connectedHashes);
+}
+
+// TITANIUM: the database that stores exactly this id+key pair, if any (null otherwise)
+QSharedPointer<Database> BrowserAction::findDatabaseForKey(const QList<QSharedPointer<Database>>& databases,
+                                                           const QString& id,
+                                                           const QString& key)
+{
+    if (id.isEmpty() || key.isEmpty()) {
+        return {};
+    }
+
+    for (const auto& db : databases) {
+        if (db && browserService()->getKey(id, db).compare(key) == 0) {
+            return db;
+        }
+    }
+    return {};
 }
 
 // TITANIUM: the associated database, but only while it is still the one the protocol refers to
