@@ -80,6 +80,14 @@ namespace DatabaseSettingsDiff
     QHash<QUuid, Group*> matchGroups(const Group* original, Group* copy);
 
     /**
+     * A copy of a folder tree in which every folder and entry has a new UUID, for importing a file into a database that
+     * already has (or had) items with the file's UUIDs. The older versions of the entries are kept. Group::clone stamps
+     * every item as "moved now" while it builds the copy; the dates of the file (created, changed, moved, last used)
+     * are put back, so the copy differs from the file in nothing but the UUIDs. The caller owns the copy.
+     */
+    Group* copyWithNewUuids(const Group* original);
+
+    /**
      * Things the XML file stores about itself or about the screen that are not settings of the open database. They are
      * named to the user so that nothing is skipped silently.
      */

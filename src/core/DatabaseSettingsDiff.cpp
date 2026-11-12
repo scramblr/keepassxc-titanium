@@ -393,6 +393,26 @@ namespace DatabaseSettingsDiff
         return result;
     }
 
+    Group* copyWithNewUuids(const Group* original)
+    {
+        auto* copy = original->clone(Entry::CloneNewUuid | Entry::CloneIncludeHistory,
+                                     Group::CloneNewUuid | Group::CloneIncludeEntries);
+        // Group::clone keeps the order of folders and entries, so the lists of both trees run in step
+        const auto originalGroups = original->groupsRecursive(true);
+        const auto copiedGroups = copy->groupsRecursive(true);
+        Q_ASSERT(originalGroups.size() == copiedGroups.size());
+        for (qsizetype i = 0; i < qMin(originalGroups.size(), copiedGroups.size()); ++i) {
+            copiedGroups.at(i)->setTimeInfo(originalGroups.at(i)->timeInfo());
+        }
+        const auto originalEntries = original->entriesRecursive();
+        const auto copiedEntries = copy->entriesRecursive();
+        Q_ASSERT(originalEntries.size() == copiedEntries.size());
+        for (qsizetype i = 0; i < qMin(originalEntries.size(), copiedEntries.size()); ++i) {
+            copiedEntries.at(i)->setTimeInfo(originalEntries.at(i)->timeInfo());
+        }
+        return copy;
+    }
+
     QStringList notOffered()
     {
         return {

@@ -337,30 +337,39 @@ void DatabaseTabWidget::importFile()
                         // a copy has to be imported)
                         auto importedFolders = DatabaseSettingsDiff::matchGroups(importGroup, importGroup);
 
-                        // TITANIUM: An XML export keeps the UUIDs of everything it contains. Importing it into a
-                        // database that already has any of them (for example the database it was exported from)
-                        // would create duplicate UUIDs, which are silently merged or lost the next time the database
-                        // is opened. In that case import a copy with fresh UUIDs; times and history are kept.
-                        if (m_importWizard->importType() == ImportWizard::IMPORT_KEEPASSXML) {
+                        // TITANIUM: An XML export keeps the UUIDs of everything it contains, and so does a CSV file
+                        // this program wrote (column "UUID"). Importing it into a database that already has any of
+                        // them (for example the database it was exported from) would create duplicate UUIDs, which
+                        // are silently merged or lost the next time the database is opened. In that case import a
+                        // copy with fresh UUIDs; times and history are kept. The person is told how many items
+                        // were copied.
+                        QStringList notes;
+                        if (m_importWizard->importType() == ImportWizard::IMPORT_KEEPASSXML
+                            || m_importWizard->importType() == ImportWizard::IMPORT_CSV) {
                             auto* targetDb = dbWidget->database().data();
                             auto collides = [&](const QUuid& uuid) {
                                 return targetDb->rootGroup()->findGroupByUuid(uuid)
                                        || targetDb->rootGroup()->findEntryByUuid(uuid)
                                        || targetDb->containsDeletedObject(uuid);
                             };
-                            bool uuidInUse = false;
+                            int foldersInUse = 0;
+                            int entriesInUse = 0;
                             for (const auto* importedGroup : importGroup->groupsRecursive(true)) {
-                                uuidInUse = uuidInUse || collides(importedGroup->uuid());
+                                foldersInUse += collides(importedGroup->uuid()) ? 1 : 0;
                             }
                             for (const auto* importedEntry : importGroup->entriesRecursive()) {
-                                uuidInUse = uuidInUse || collides(importedEntry->uuid());
+                                entriesInUse += collides(importedEntry->uuid()) ? 1 : 0;
                             }
-                            if (uuidInUse) {
-                                auto* copy = importGroup->clone(Entry::CloneNewUuid | Entry::CloneIncludeHistory,
-                                                                Group::CloneNewUuid | Group::CloneIncludeEntries);
+                            if (foldersInUse > 0 || entriesInUse > 0) {
+                                auto* copy = DatabaseSettingsDiff::copyWithNewUuids(importGroup);
                                 importedFolders = DatabaseSettingsDiff::matchGroups(importGroup, copy);
                                 delete importGroup;
                                 importGroup = copy;
+                                notes << tr("%1 and %2 of the file have the same id as items this database already has "
+                                            "(or had and deleted). They were added as copies with new ids; nothing "
+                                            "was merged or overwritten.")
+                                             .arg(tr("%n entry(ies)", "", entriesInUse),
+                                                  tr("%n folder(s)", "", foldersInUse));
                             }
                         }
 
@@ -377,10 +386,11 @@ void DatabaseTabWidget::importFile()
                             const auto notApplied = DatabaseSettingsDiff::apply(
                                 *dbWidget->database(), *db, chosenSettings, importedFolders);
                             if (!notApplied.isEmpty()) {
-                                emit messageGlobal(
-                                    tr("These settings could not be applied: %1").arg(notApplied.join(", ")),
-                                    MessageWidget::Warning);
+                                notes << tr("These settings could not be applied: %1").arg(notApplied.join(", "));
                             }
+                        }
+                        if (!notes.isEmpty()) {
+                            emit messageGlobal(notes.join("\n"), MessageWidget::Warning);
                         }
                         setCurrentIndex(i);
                         return;
@@ -610,6 +620,29 @@ void DatabaseTabWidget::exportToCsv()
     auto db = databaseWidgetFromIndex(currentIndex())->database();
     if (!db) {
         Q_ASSERT(false);
+        return;
+    }
+
+    // TITANIUM: a CSV file cannot hold everything a database holds (the settings of the database, folder settings,
+    // empty folders, pictures used as icons, ...). Say what, by name, before anything is saved, and offer the XML
+    // export, which keeps everything. The default answer is the one that loses nothing.
+    QString lossText = tr("A CSV file holds your entries, but not everything in the database:");
+    for (const auto& line : CsvExporter::lossReport(*db)) {
+        lossText.append("\n- ").append(line);
+    }
+    lossText.append("\n\n").append(
+        tr("The XML export keeps everything.\n\nYes: export to XML instead\nNo: save the CSV file anyway\nCancel: "
+           "export nothing"));
+    const auto lossAnswer = MessageBox::question(this,
+                                                 tr("CSV export does not keep everything"),
+                                                 lossText,
+                                                 MessageBox::Yes | MessageBox::No | MessageBox::Cancel,
+                                                 MessageBox::Yes);
+    if (lossAnswer == MessageBox::Yes) {
+        exportToXML();
+        return;
+    }
+    if (lossAnswer != MessageBox::No) {
         return;
     }
 
