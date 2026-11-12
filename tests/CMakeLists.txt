@@ -152,6 +152,10 @@ add_unit_test(NAME testxmlimport SOURCES TestXmlImport.cpp
 add_unit_test(NAME testimportsettingsdialog SOURCES TestImportSettingsDialog.cpp
         LIBS ${TEST_LIBRARIES})
 
+# TITANIUM: CSV export -> CSV import (the import form, run offscreen)
+add_unit_test(NAME testcsvimport SOURCES TestCsvImport.cpp
+        LIBS testsupport ${TEST_LIBRARIES})
+
 add_unit_test(NAME testykchallengeresponsekey SOURCES TestYkChallengeResponseKey.cpp
         LIBS ${TEST_LIBRARIES})
 

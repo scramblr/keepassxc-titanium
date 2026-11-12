@@ -26,6 +26,7 @@ set(core_SOURCES
         core/CustomData.cpp
         core/DatabaseSettingsDiff.cpp
         core/HiddenCharacterList.cpp
+        format/CsvExtraColumns.cpp
         core/Database.cpp
         core/DatabaseStats.cpp
         core/Entry.cpp
