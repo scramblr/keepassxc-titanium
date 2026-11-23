@@ -45,8 +45,8 @@ void TestCsvParser::testLargeFile()
     QFETCH(int, columns);
 
     // Every quote inside a quoted CSV cell is doubled
-    const QString json = QStringLiteral(
-        "{\"\"title\"\":\"\"t\"\",\"\"username\"\":\"\"u\"\",\"\"url\"\":\"\"https://example.com\"\"},");
+    const QString json =
+        QStringLiteral("{\"\"title\"\":\"\"t\"\",\"\"username\"\":\"\"u\"\",\"\"url\"\":\"\"https://example.com\"\"},");
     QString row;
     for (int c = 0; c < shortFieldsPerRow; ++c) {
         row += QString("\"cell %1 with, comma\",").arg(c);

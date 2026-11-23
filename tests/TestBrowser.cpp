@@ -1424,7 +1424,8 @@ void TestBrowser::testSearchConnectedDatabases()
     QCOMPARE(result[0]->url(), QString("https://example.com/db2"));
 
     // Right key id but wrong key value is not an association
-    result = m_browserService->searchEntriesInDatabases(dbs, siteUrl, siteUrl, {qMakePair(QString("phone"), QString("wrong"))});
+    result = m_browserService->searchEntriesInDatabases(
+        dbs, siteUrl, siteUrl, {qMakePair(QString("phone"), QString("wrong"))});
     QVERIFY(result.isEmpty());
 
     // db1 group restricted to key id "laptop"; the client reaches db1 as "phone" and db2 as "laptop".

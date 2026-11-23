@@ -78,9 +78,8 @@ private:
     // TITANIUM: set when the client proved a key for an unlocked database other than the protocol (active tab) one.
     // It only permits credential lookup (get-logins); every other action still needs a regular association.
     bool m_credentialLookupOnly = false;
-    static QSharedPointer<Database> findDatabaseForKey(const QList<QSharedPointer<Database>>& databases,
-                                                       const QString& id,
-                                                       const QString& key);
+    static QSharedPointer<Database>
+    findDatabaseForKey(const QList<QSharedPointer<Database>>& databases, const QString& id, const QString& key);
     QSharedPointer<Database> boundDatabase() const;
     static QSharedPointer<Database> selectBoundDatabase(const QPointer<Database>& associated,
                                                         const QSharedPointer<Database>& current);
@@ -109,7 +108,7 @@ private:
     StringPairList getConnectionKeys(const BrowserRequest& browserRequest);
 
     static const int MaxUrlLength;
-    static const int MaxStoredUrlLength;  // TITANIUM
+    static const int MaxStoredUrlLength; // TITANIUM
     static const int MaxMatchedUrlLength; // TITANIUM
     static QString capRequestUrl(const QString& urlString); // TITANIUM
 

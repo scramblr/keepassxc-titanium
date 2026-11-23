@@ -197,7 +197,8 @@ QSharedPointer<Database> BrowserService::selectProtocolDatabase(const QList<QSha
     }
 
     for (const auto& db : unlocked) {
-        if (db && (connectedHashes.contains(getDatabaseHash(db)) || connectedHashes.contains(getDatabaseHash(db, true)))) {
+        if (db
+            && (connectedHashes.contains(getDatabaseHash(db)) || connectedHashes.contains(getDatabaseHash(db, true)))) {
             return db;
         }
     }
@@ -318,12 +319,13 @@ QJsonObject BrowserService::createNewGroup(const QString& groupName,
         return result;
     }
 
-    auto dialogResult = MessageBox::warning(m_currentDatabaseWidget,
-                                            tr("KeePassXC - Create a new group"),
-                                            tr("A request for creating a new group \"%1\" has been received.\n"
-                                               "Do you want to create this group?\n")
-                                                .arg(groupName.toHtmlEscaped()), // TITANIUM: MessageBox renders rich text
-                                            MessageBox::Yes | MessageBox::No);
+    auto dialogResult =
+        MessageBox::warning(m_currentDatabaseWidget,
+                            tr("KeePassXC - Create a new group"),
+                            tr("A request for creating a new group \"%1\" has been received.\n"
+                               "Do you want to create this group?\n")
+                                .arg(groupName.toHtmlEscaped()), // TITANIUM: MessageBox renders rich text
+                            MessageBox::Yes | MessageBox::No);
 
     if (dialogResult != MessageBox::Yes) {
         return {};
@@ -928,14 +930,14 @@ void BrowserService::addPasskeyToEntry(Entry* entry,
 
     // Ask confirmation if entry already contains a Passkey
     if (entry->hasPasskey()) {
-        if (MessageBox::question(m_currentDatabaseWidget,
-                                 tr("KeePassXC - Update passkey"),
-                                 tr("Entry already has a passkey.\nDo you want to overwrite the passkey in %1 - %2?")
-                                     // TITANIUM: title/username originate from the website (rp.name, user.name)
-                                     .arg(entry->title().toHtmlEscaped(),
-                                          passkeyUtils()->getUsernameFromEntry(entry).toHtmlEscaped()),
-                                 MessageBox::Overwrite | MessageBox::Cancel,
-                                 MessageBox::Cancel)
+        if (MessageBox::question(
+                m_currentDatabaseWidget,
+                tr("KeePassXC - Update passkey"),
+                tr("Entry already has a passkey.\nDo you want to overwrite the passkey in %1 - %2?")
+                    // TITANIUM: title/username originate from the website (rp.name, user.name)
+                    .arg(entry->title().toHtmlEscaped(), passkeyUtils()->getUsernameFromEntry(entry).toHtmlEscaped()),
+                MessageBox::Overwrite | MessageBox::Cancel,
+                MessageBox::Cancel)
             != MessageBox::Overwrite) {
             return;
         }
@@ -1041,14 +1043,14 @@ bool BrowserService::updateEntry(const EntryParameters& entryParameters, const Q
         MessageBox::Button dialogResult = MessageBox::No;
         if (!browserSettings()->alwaysAllowUpdate()) {
             raiseWindow();
-            dialogResult = MessageBox::question(m_currentDatabaseWidget,
-                                                tr("KeePassXC - Update Entry"),
-                                                tr("Do you want to update the information in %1 - %2?")
-                                                    // TITANIUM: username may come from a website form; escape rich text
-                                                    .arg(QUrl(entryParameters.siteUrl).host().toHtmlEscaped(),
-                                                         username.toHtmlEscaped()),
-                                                MessageBox::Save | MessageBox::Cancel,
-                                                MessageBox::Cancel);
+            dialogResult = MessageBox::question(
+                m_currentDatabaseWidget,
+                tr("KeePassXC - Update Entry"),
+                tr("Do you want to update the information in %1 - %2?")
+                    // TITANIUM: username may come from a website form; escape rich text
+                    .arg(QUrl(entryParameters.siteUrl).host().toHtmlEscaped(), username.toHtmlEscaped()),
+                MessageBox::Save | MessageBox::Cancel,
+                MessageBox::Cancel);
         }
 
         if (browserSettings()->alwaysAllowUpdate() || dialogResult == MessageBox::Save) {
@@ -1718,9 +1720,8 @@ bool BrowserService::isConnectedToBrowser(const QSharedPointer<Database>& db)
         return false;
     }
     const auto keys = db->metadata()->customData()->keys();
-    return std::any_of(keys.begin(), keys.end(), [](const QString& k) {
-        return k.startsWith(CustomData::BrowserKeyPrefix);
-    });
+    return std::any_of(
+        keys.begin(), keys.end(), [](const QString& k) { return k.startsWith(CustomData::BrowserKeyPrefix); });
 }
 
 bool BrowserService::hasConnectedDatabase()

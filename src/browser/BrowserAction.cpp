@@ -28,7 +28,7 @@
 #include <QUrl>
 
 const int BrowserAction::MaxUrlLength = 256;
-const int BrowserAction::MaxStoredUrlLength = 8192;  // TITANIUM
+const int BrowserAction::MaxStoredUrlLength = 8192; // TITANIUM
 const int BrowserAction::MaxMatchedUrlLength = 2048; // TITANIUM
 
 // TITANIUM: bound a URL used for matching. Over-long ones lose query and fragment; if still too long, give up.

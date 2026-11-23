@@ -476,7 +476,8 @@ namespace
                   && a->protectNotes() == b->protectNotes(),
               "memoryProtection");
         check(a->recycleBinEnabled() == b->recycleBinEnabled(), "recycleBinEnabled");
-        check((a->recycleBin() ? a->recycleBin()->uuid() : QUuid()) == (b->recycleBin() ? b->recycleBin()->uuid() : QUuid()),
+        check((a->recycleBin() ? a->recycleBin()->uuid() : QUuid())
+                  == (b->recycleBin() ? b->recycleBin()->uuid() : QUuid()),
               "recycleBin");
         check((a->entryTemplatesGroup() ? a->entryTemplatesGroup()->uuid() : QUuid())
                   == (b->entryTemplatesGroup() ? b->entryTemplatesGroup()->uuid() : QUuid()),
@@ -518,7 +519,8 @@ void TestXmlImport::testRoundTripKeepsEverything()
     meta->setRecycleBinEnabled(true);
     meta->customData()->set("db-key", "db-value");
     meta->setAutosaveDelayMin(7);
-    meta->addCustomIcon(iconUuid, binaryPayload(200), "Named icon", QDateTime(QDate(2025, 5, 6), QTime(7, 8, 9), Qt::UTC));
+    meta->addCustomIcon(
+        iconUuid, binaryPayload(200), "Named icon", QDateTime(QDate(2025, 5, 6), QTime(7, 8, 9), Qt::UTC));
     source.rootGroup()->setNotes("Root notes");
 
     auto* bin = new Group();
@@ -685,8 +687,9 @@ void TestXmlImport::testMalformedInput_data()
     QTest::newRow("binary garbage") << QByteArray("\x00\x01\x02\xff\xfe\xfd", 6);
     QTest::newRow("wrong root element") << header + "<Something/>";
     QTest::newRow("no root group") << header + "<KeePassFile><Meta/><Root/></KeePassFile>";
-    QTest::newRow("truncated")
-        << header + QByteArray("<KeePassFile><Root><Group><Name>cut off</Name><Entry><String><Key>Title");
+    QTest::newRow("truncated") << header
+                                      + QByteArray(
+                                          "<KeePassFile><Root><Group><Name>cut off</Name><Entry><String><Key>Title");
     QTest::newRow("two root groups")
         << header
                + "<KeePassFile><Root><Group><Name>a</Name></Group><Group><Name>b</Name></Group></Root>"
@@ -694,8 +697,7 @@ void TestXmlImport::testMalformedInput_data()
     // Protected values can only be decoded with the inner stream of an encrypted database, which a plain XML file
     // does not have. Must be reported as an error, not dereference a missing stream.
     QTest::newRow("protected string value")
-        << header
-               + QByteArray("<KeePassFile><Root><Group><UUID>") + groupUuid.toLatin1()
+        << header + QByteArray("<KeePassFile><Root><Group><UUID>") + groupUuid.toLatin1()
                + "</UUID><Entry><String><Key>Password</Key><Value Protected=\"True\">AAAAAAAA</Value></String></Entry>"
                  "</Group></Root></KeePassFile>";
     QTest::newRow("protected binary value")
@@ -1560,10 +1562,8 @@ namespace
         meta->setDescription(value);
         meta->setDefaultUserName(value);
         meta->customData()->set(key, value);
-        meta->addCustomIcon(QUuid::createUuid(),
-                            binaryPayload(20),
-                            value,
-                            QDateTime(QDate(2025, 5, 6), QTime(7, 8, 9), Qt::UTC));
+        meta->addCustomIcon(
+            QUuid::createUuid(), binaryPayload(20), value, QDateTime(QDate(2025, 5, 6), QTime(7, 8, 9), Qt::UTC));
 
         auto* root = db.rootGroup();
         root->setName(value);
@@ -1656,8 +1656,7 @@ void TestXmlImport::testHiddenCharactersSurviveXmlRoundTrip_data()
 {
     QTest::addColumn<QString>("value");
 
-    QTest::newRow("invisible characters inside a password")
-        << fromUnits({'a', 'b', 0x01, 'c', 'd', 0x7F, 'e', 'f'});
+    QTest::newRow("invisible characters inside a password") << fromUnits({'a', 'b', 0x01, 'c', 'd', 0x7F, 'e', 'f'});
     QTest::newRow("a NUL character") << fromUnits({'a', 0x00, 'b'});
     QTest::newRow("every low control character") << controlsBetween(0x01, 0x1F);
     QTest::newRow("the control characters 0x7F to 0x9F") << controlsBetween(0x7F, 0x9F);
@@ -1899,9 +1898,9 @@ void TestXmlImport::testHiddenCharactersSurviveSavingTheDatabaseFile_data()
     testHiddenCharactersSurviveXmlRoundTrip_data();
 }
 
-// Catches: a normal save of the database file deleting hidden characters from a field (it used to, from every field that
-// is not encrypted: titles, user names, notes, folder names, database settings, ...), or leaving a field "protected"
-// that was not before (the protected flag is compared as part of the entry).
+// Catches: a normal save of the database file deleting hidden characters from a field (it used to, from every field
+// that is not encrypted: titles, user names, notes, folder names, database settings, ...), or leaving a field
+// "protected" that was not before (the protected flag is compared as part of the entry).
 void TestXmlImport::testHiddenCharactersSurviveSavingTheDatabaseFile()
 {
     QFETCH(QString, value);
