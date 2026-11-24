@@ -1,69 +1,60 @@
-# <img src="https://keepassxc.org/assets/img/keepassxc.svg" width="40" height="40"/> KeePassXC
+# KeePassXC Titanium
 
-[![OpenSSF Best Practices](https://bestpractices.coreinfrastructure.org/projects/6326/badge)](https://bestpractices.coreinfrastructure.org/projects/6326)
-[![TeamCity Build Status](https://ci.keepassxc.org/app/rest/builds/buildType:\(project:KeepassXC\)/statusIcon)](https://ci.keepassxc.org/?guest=1)
-[![codecov](https://codecov.io/gh/keepassxreboot/keepassxc/branch/develop/graph/badge.svg)](https://codecov.io/gh/keepassxreboot/keepassxc)
-[![GitHub release](https://img.shields.io/github/release/keepassxreboot/keepassxc)](https://github.com/keepassxreboot/keepassxc/releases/)
+KeePassXC Titanium is an independent fork of [KeePassXC](https://keepassxc.org), the open-source password manager. It adds data-integrity, hardening and performance changes on top of KeePassXC and is regularly rebased on the upstream `develop` branch.
 
-[![Matrix community channel](https://img.shields.io/matrix/keepassxc:matrix.org?label=Community%20channel)](https://app.element.io/#/room/#keepassxc:mozilla.org)
-[![Matrix development channel](https://img.shields.io/matrix/keepassxc-dev:matrix.org?label=Development%20channel)](https://app.element.io/#/room/#keepassxc-dev:mozilla.org)
+Titanium is **not** the official KeePassXC project and is not affiliated with or endorsed by the KeePassXC team. All credit for KeePassXC itself belongs to its authors and contributors. Project badges, certifications, release channels and support channels of the official project (for example its OpenSSF Best Practices badge, CI and community channels) apply to the official project only and are deliberately not claimed here.
 
-[KeePassXC](https://keepassxc.org) is a modern, secure, and open-source password manager that stores and manages your most sensitive information. You can run KeePassXC on Windows, macOS, and Linux systems. KeePassXC is for people with extremely high demands of secure personal data management. It saves many different types of information, such as usernames, passwords, URLs, attachments, and notes in an offline, encrypted file that can be stored in any location, including private and public cloud solutions. For easy identification and management, user-defined titles and icons can be specified for entries. In addition, entries are sorted into customizable groups. An integrated search function allows you to use advanced patterns to easily find any entry in your database. A customizable, fast, and easy-to-use password generator utility allows you to create passwords with any combination of characters or easy to remember passphrases.
+See [TITANIUM.md](./TITANIUM.md) for the branch layout and the list of changes.
 
-## Quick Start
+## What Titanium adds
 
-The [QuickStart Guide](https://keepassxc.org/docs/KeePassXC_GettingStarted.html) gets you started using KeePassXC on your Windows, macOS, or Linux computer using pre-compiled binaries from the [downloads page](https://keepassxc.org/download). Additionally, individual Linux distributions may ship their own versions, so please check your distribution's package list to see if KeePassXC is available. Detailed documentation is available in the [User Guide](https://keepassxc.org/docs/KeePassXC_UserGuide.html).
+* **XML export and import without data loss:** complete export (attachments, history, database settings), streaming export with a low memory peak, an import wizard entry with a settings checklist, exact round trip of control characters, and handling of UUID collisions.
+* **CSV export and import without dropped columns:** all entry data is exported, every exported column is imported, unrecognised columns are kept as custom fields, large files parse in linear time, and a warning is shown before an export that cannot hold everything.
+* **XML reader hardening:** protected values without a stream, duplicate group and entry UUIDs, a nesting depth limit and out-of-range binary dates.
+* **Browser integration:** credentials are found in every connected, unlocked database; stricter checks of requests from web pages and local clients; database-scoped actions are bound to the database the client associated with.
+* **Performance and leaks:** throttled tag-list rescans, an icon-picker leak fix and a URL pattern that is compiled once.
 
-## Features List
+Parts of these changes have been offered to the official project as pull requests ([#14146](https://github.com/keepassxreboot/keepassxc/pull/14146), [#14147](https://github.com/keepassxreboot/keepassxc/pull/14147)). Whether they are accepted is up to the official project.
 
-KeePassXC has numerous features for novice and power users alike. Our goal is to create an application that can be used by anyone while still offering advanced features to those that need them.
+## About KeePassXC
 
-### Core Features
+KeePassXC is a password manager that stores usernames, passwords, URLs, attachments and notes in an offline, encrypted file that can be kept in any location. Entries are organised in groups, can be searched with advanced patterns, and a password and passphrase generator is included. It runs on Windows, macOS and Linux. Titanium keeps all of these features.
 
-* Create, open, and save databases in the KDBX format (KeePass-compatible with KDBX4 and KDBX3)
-* All information is encrypted at rest and never exposed outside the program
-* Store sensitive information in entries that are organized by groups
-* Password generator
-* Search for entries
+### Core features (inherited from KeePassXC)
+
+* Create, open and save databases in the KDBX format (KDBX4 and KDBX3)
+* Entries organised in groups, search, password generator
 * TOTP storage and generation
 * YubiKey/OnlyKey challenge-response support
-* Auto-Type passwords into applications
-* Browser integration with Google Chrome, Mozilla Firefox, Microsoft Edge, Chromium, Vivaldi, Brave, and Tor-Browser
-* Support for passkeys using the browser integration
+* Auto-Type into applications
+* Browser integration with Chrome, Firefox, Edge, Chromium, Vivaldi, Brave and Tor Browser, including passkeys
 * Entry icon download
-* Import databases from CSV, 1Password, Bitwarden, Proton Pass, and KeePass1 formats
+* Import from CSV, 1Password, Bitwarden, Proton Pass and KeePass1 formats
 
-### Advanced
-* Database reports (password health, HIBP, and statistics)
-* Database export to CSV, XML, and HTML formats
-* TOTP storage and generation
-* Field references between entries
-* File attachments and custom attributes
-* Entry history and data restoration
-* Command line interface (keepassxc-cli)
-* SSH Agent integration
-* FreeDesktop.org Secret Service (replace Gnome keyring, etc.)
+### Advanced features (inherited from KeePassXC)
+
+* Database reports (password health, HIBP, statistics)
+* Export to CSV, XML and HTML
+* Field references, file attachments, custom attributes
+* Entry history and restoration
+* Command line interface (`keepassxc-cli`)
+* SSH Agent integration and FreeDesktop.org Secret Service
 * Additional encryption choices: Twofish and ChaCha20
 
-For a full list of changes, read the [CHANGELOG](CHANGELOG.md) document. \
-For a full list of keyboard shortcuts, see [KeyboardShortcuts.adoc](./docs/topics/KeyboardShortcuts.adoc)
+Documentation of the official project: [Getting Started](https://keepassxc.org/docs/KeePassXC_GettingStarted.html) and [User Guide](https://keepassxc.org/docs/KeePassXC_UserGuide.html). Titanium-specific behaviour is described in [TITANIUM.md](./TITANIUM.md). For keyboard shortcuts see [KeyboardShortcuts.adoc](./docs/topics/KeyboardShortcuts.adoc).
 
-## Building KeePassXC
+## Building
 
-Detailed instructions are available in the [Build and Install](./INSTALL.md) page and in the [Wiki](https://github.com/keepassxreboot/keepassxc/wiki/Building-KeePassXC).
+See [INSTALL.md](./INSTALL.md). Titanium builds the same way as KeePassXC.
 
 ## Contributing
 
-We are always looking for suggestions on how to improve KeePassXC. If you find any bugs or have an idea for a new feature, please let us know by opening a report in the [issue tracker](https://github.com/keepassxreboot/keepassxc/issues) on GitHub, or join us on [Matrix community channel](https://matrix.to/#/!zUxwGnFkUyycpxeHeM:matrix.org?via=matrix.org) or [Matrix development channel](https://matrix.to/#/!RhJPJPGwQIFVQeXqZa:matrix.org?via=matrix.org), or on IRC in [Libera.Chat](https://web.libera.chat/) channels #keepassxc and #keepassxc-dev.
-
-You may directly contribute your own code by submitting a pull request. Please read the [CONTRIBUTING](.github/CONTRIBUTING.md) document for further information.
-
-Contributors are required to adhere to the project's [Code of Conduct](CODE-OF-CONDUCT.md).
+Changes are welcome as pull requests to this repository. Changes that also make sense for the official project can be sent to [KeePassXC](https://github.com/keepassxreboot/keepassxc); please read its [CONTRIBUTING](.github/CONTRIBUTING.md) guide and [Code of Conduct](CODE-OF-CONDUCT.md) first.
 
 ## Generative AI
 
-Generative AI is fast becoming a first-party feature in most development environments, including GitHub itself. If the majority of a code submission is made using Generative AI (e.g., agent-based or vibe coding) then **we will document that in the pull request.** All code submissions go through a rigorous review process regardless of the development workflow or submitter.
+A large part of the Titanium changes was written with a generative AI coding assistant (Claude Sonnet 5.5 through Claude Code). The commits carry a `Co-Authored-By` trailer, and pull requests to the official project disclose the same.
 
 ## License
 
-KeePassXC code is licensed under GPL-2 or GPL-3. Additional licensing for third-party files is detailed in [COPYING](./COPYING).
+KeePassXC code is licensed under GPL-2 or GPL-3, and so are the Titanium changes. Additional licensing for third-party files is detailed in [COPYING](./COPYING).
