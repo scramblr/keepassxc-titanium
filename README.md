@@ -9,6 +9,7 @@ See [TITANIUM.md](./TITANIUM.md) for the branch layout and the list of changes.
 ## Project team
 
 * **scramblr** ([@scramblr](https://github.com/scramblr)): architecture design manager
+* **anonymous** ([@anonymous](https://keepassxc-titanium.fuct.app/)): anonymous contributions for ideas and enhancements
 
 ## What Titanium adds
 
@@ -55,10 +56,10 @@ See [INSTALL.md](./INSTALL.md). Titanium builds the same way as KeePassXC.
 
 Changes are welcome as pull requests to this repository. Changes that also make sense for the official project can be sent to [KeePassXC](https://github.com/keepassxreboot/keepassxc); please read its [CONTRIBUTING](.github/CONTRIBUTING.md) guide and [Code of Conduct](CODE-OF-CONDUCT.md) first.
 
-## Generative AI
+## Human Architecture Design + Generative AI = A Better Place
 
-A large part of the Titanium changes was written with a generative AI coding assistant (Claude Sonnet 5.5 through Claude Code). The commits carry a `Co-Authored-By` trailer, and pull requests to the official project disclose the same.
+While still largely controversial, the fusion of human intuition with Claude's Generative AI (specifically Sonnet 5.5 & Second-Layer Collaboration with Opus 5.5) is being used as a hybrid approach to one of the most serious areas of security: The Password Vault. By leveraging the best of the best, this project hopes to attain an extremely reliable and secure platform in which anyone can store their passwords and secrets without fear of compromise or failure in day-to-day operations. Because this project enjoys the company of Claude, the commits carry a `Co-Authored-By` trailer, and pull requests to the official project will continue to be transparent in this manner.
 
 ## License
 
-KeePassXC code is licensed under GPL-2 or GPL-3, and so are the Titanium changes. Additional licensing for third-party files is detailed in [COPYING](./COPYING).
+The original KeePassXC code is licensed under GPL-2 or GPL-3, and so are the Titanium changes. Additional licensing for third-party files is detailed in [COPYING](./COPYING).
