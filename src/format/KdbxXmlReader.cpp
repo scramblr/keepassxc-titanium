@@ -37,6 +37,9 @@ namespace
     // TITANIUM: <Group> is parsed recursively. Real databases are a few levels deep; this only exists so that a
     // crafted file (e.g. a plain XML import) cannot exhaust the stack.
     constexpr int MaxGroupDepth = 256;
+
+    // A date stored as a number of seconds since 0001-01-01. Anything past 9999-12-31 23:59:59 is not a date.
+    constexpr qint64 MaxBinaryDateSeconds = Q_INT64_C(315537897599);
 } // namespace
 
 /**
@@ -109,6 +112,7 @@ void KdbxXmlReader::readDatabase(QIODevice* device, Database* db, KeePass2Random
 
     // TITANIUM: per-read state
     m_parsedGroups.clear();
+    m_parsedEntries.clear();
     m_groupDepth = 0;
     m_warnings.clear();
 
@@ -841,6 +845,18 @@ Entry* KdbxXmlReader::parseEntry(bool history)
         if (history) {
             entry->setUpdateTimeinfo(false);
         } else {
+            // getEntry() returns the entry that already owns a UUID, and copyDataFrom() would then overwrite it.
+            // If a second <Entry> carries the same UUID (corrupt or hostile file) the first entry would be lost
+            // without a word. The first entry keeps its UUID, every later one gets a fresh one so nothing is
+            // dropped or merged.
+            if (m_parsedEntries.contains(entry->uuid())) {
+                if (m_strictMode) {
+                    raiseError(tr("Duplicate entry uuid"));
+                }
+                entry->setUuid(QUuid::createUuid());
+            }
+            m_parsedEntries.insert(entry->uuid());
+
             Entry* tmpEntry = entry;
 
             entry = getEntry(tmpEntry->uuid());
@@ -1176,7 +1192,11 @@ QDateTime KdbxXmlReader::readDateTime()
     if (Tools::isBase64(str.toLatin1())) {
         QByteArray secsBytes = QByteArray::fromBase64(str.toUtf8()).leftJustified(8, '\0', true).left(8);
         qint64 secs = Endian::bytesToSizedInt<quint64>(secsBytes, KeePass2::BYTEORDER);
-        return QDateTime(QDate(1, 1, 1), QTime(0, 0, 0, 0), Qt::UTC).addSecs(secs);
+        // A value outside of the year range 1 to 9999 is not stored as a date (it would be an invalid or absurd
+        // time stamp). It is handled like any other value that cannot be read as a date below.
+        if (secs >= 0 && secs <= MaxBinaryDateSeconds) {
+            return QDateTime(QDate(1, 1, 1), QTime(0, 0, 0, 0), Qt::UTC).addSecs(secs);
+        }
     }
 
     QDateTime dt = Clock::parse(str, Qt::ISODate);

@@ -17,6 +17,8 @@
 
 #include "TestXmlImport.h"
 
+#include <limits>
+
 #include <initializer_list>
 #include <memory>
 
@@ -799,6 +801,83 @@ void TestXmlImport::testDuplicateGroupUuidDoesNotCreateCycle()
         uuids.insert(group->uuid());
     }
     QCOMPARE(uuids.size(), groupCount);
+}
+
+void TestXmlImport::testDuplicateEntryUuidKeepsBothEntries()
+{
+    const auto entryUuid = uuidXml(QUuid::createUuid()).toLatin1();
+    auto entry = [&](const QByteArray& title) {
+        return QByteArray("<Entry><UUID>") + entryUuid + "</UUID><String><Key>Title</Key><Value>" + title
+               + "</Value></String></Entry>";
+    };
+    const auto xml = QByteArray(MinimalHeader) + "<KeePassFile><Root><Group><UUID>"
+                     + uuidXml(QUuid::createUuid()).toLatin1() + "</UUID><Name>root</Name>" + entry("first")
+                     + entry("second") + "</Group></Root></KeePassFile>";
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto path = dir.filePath("duplicate-entries.xml");
+    QVERIFY(writeFile(path, xml));
+
+    Database db;
+    QString error;
+    QVERIFY2(db.import(path, &error), qPrintable(error));
+    const auto entries = db.rootGroup()->entriesRecursive();
+    QCOMPARE(entries.size(), 2);
+    QSet<QString> titles;
+    QSet<QUuid> uuids;
+    for (const auto* e : entries) {
+        titles.insert(e->title());
+        uuids.insert(e->uuid());
+    }
+    QVERIFY(titles.contains("first") && titles.contains("second"));
+    QCOMPARE(uuids.size(), 2);
+}
+
+void TestXmlImport::testBinaryDateOutOfRange_data()
+{
+    QTest::addColumn<qint64>("secs");
+    QTest::addColumn<bool>("kept");
+    const QDateTime start(QDate(1, 1, 1), QTime(0, 0, 0), Qt::UTC);
+    QTest::newRow("a normal date") << start.secsTo(QDateTime(QDate(2020, 1, 1), QTime(0, 0, 0), Qt::UTC)) << true;
+    QTest::newRow("last second of year 9999") << Q_INT64_C(315537897599) << true;
+    QTest::newRow("first second after year 9999") << Q_INT64_C(315537897600) << false;
+    QTest::newRow("negative") << Q_INT64_C(-1) << false;
+    QTest::newRow("far too large") << std::numeric_limits<qint64>::max() << false;
+}
+
+void TestXmlImport::testBinaryDateOutOfRange()
+{
+    QFETCH(qint64, secs);
+    QFETCH(bool, kept);
+
+    QByteArray bytes;
+    for (int i = 0; i < 8; ++i) {
+        bytes.append(static_cast<char>((static_cast<quint64>(secs) >> (8 * i)) & 0xFF));
+    }
+    const auto xml = QByteArray(MinimalHeader) + "<KeePassFile><Root><Group><UUID>"
+                     + uuidXml(QUuid::createUuid()).toLatin1() + "</UUID><Name>root</Name><Entry><UUID>"
+                     + uuidXml(QUuid::createUuid()).toLatin1() + "</UUID><Times><LastModificationTime>"
+                     + bytes.toBase64() + "</LastModificationTime></Times></Entry></Group></Root></KeePassFile>";
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto path = dir.filePath("date.xml");
+    QVERIFY(writeFile(path, xml));
+
+    Database db;
+    QString error;
+    QVERIFY2(db.import(path, &error), qPrintable(error));
+    const auto entries = db.rootGroup()->entriesRecursive();
+    QCOMPARE(entries.size(), 1);
+    const auto time = entries.first()->timeInfo().lastModificationTime();
+    QVERIFY(time.isValid());
+    if (kept) {
+        QCOMPARE(time, QDateTime(QDate(1, 1, 1), QTime(0, 0, 0), Qt::UTC).addSecs(secs));
+    } else {
+        QVERIFY(time.date().year() >= 1 && time.date().year() <= 9999);
+        QVERIFY(qAbs(time.secsTo(QDateTime::currentDateTimeUtc())) < 86400);
+    }
 }
 
 void TestXmlImport::testDeepNesting()

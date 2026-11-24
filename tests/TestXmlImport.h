@@ -35,6 +35,9 @@ private slots:
     void testMissingFile();
     void testDuplicateGroupUuidDoesNotCreateCycle_data();
     void testDuplicateGroupUuidDoesNotCreateCycle();
+    void testDuplicateEntryUuidKeepsBothEntries();
+    void testBinaryDateOutOfRange_data();
+    void testBinaryDateOutOfRange();
     void testDeepNesting();
     void testReasonableNestingIsAccepted();
     void testEntityExpansion();

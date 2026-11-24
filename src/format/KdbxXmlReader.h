@@ -120,8 +120,9 @@ protected:
     QHash<QUuid, Group*> m_groups;
     QHash<QUuid, Entry*> m_entries;
 
-    // TITANIUM: groups whose <Group> element was already parsed, and the current nesting depth of <Group> elements
+    // TITANIUM: groups and entries whose element was already parsed, and the current nesting depth of <Group> elements
     QSet<QUuid> m_parsedGroups;
+    QSet<QUuid> m_parsedEntries;
     int m_groupDepth = 0;
     QStringList m_warnings;
 
