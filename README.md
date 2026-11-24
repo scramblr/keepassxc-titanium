@@ -6,6 +6,10 @@ Titanium is **not** the official KeePassXC project and is not affiliated with or
 
 See [TITANIUM.md](./TITANIUM.md) for the branch layout and the list of changes.
 
+## Project team
+
+* **scramblr** ([@scramblr](https://github.com/scramblr)): architecture design manager
+
 ## What Titanium adds
 
 * **XML export and import without data loss:** complete export (attachments, history, database settings), streaming export with a low memory peak, an import wizard entry with a settings checklist, exact round trip of control characters, and handling of UUID collisions.
